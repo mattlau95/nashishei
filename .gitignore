@@ -1,0 +1,23 @@
+# Environment
+.env
+.env.local
+
+# Go
+api/bin/
+api/*.exe
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Python
+ml/__pycache__/
+ml/.venv/
+ml/*.pyc
+
+# Storage (local uploads)
+storage/
+
+# OS
+.DS_Store
+Thumbs.db
