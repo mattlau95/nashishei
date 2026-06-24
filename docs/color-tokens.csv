@@ -1,0 +1,11 @@
+token,value,role,contrast_on_white,wcag_level
+--color-bg,#ffffff,page background,,
+--color-surface,#f5f5f5,thumbnail placeholders / subtle wells,,
+--color-text,#1a1a1a,primary text,17.1:1,AAA
+--color-text-muted,#555555,helper text / labels,7.2:1,AAA
+--color-accent,#fadc00,brand yellow — buttons / handles,,
+--color-accent-tint,rgba(250 220 0 / 0.09),named row background,,
+--color-accent-tint-border,rgba(250 220 0 / 0.35),named row border,,
+--color-overlay-label,rgba(20 20 20 / 0.92),name labels over photos (T4/T5),~17:1 (white text),AAA
+--color-scrim,rgba(0 0 0 / 0.40),detecting / loading overlay,,
+--color-error,#cc0000,error text,5.8:1,AA

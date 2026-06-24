@@ -109,3 +109,10 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+/* Focus rings for app inputs — inline outline:none is removed in favour of this */
+input[type="text"]:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: transparent;
+}

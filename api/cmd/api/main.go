@@ -67,6 +67,8 @@ func main() {
 		r.Delete("/images/{id}/share", handler.RevokeShareToken(pool))
 
 		r.Post("/persons", handler.CreatePerson(pool))
+		r.Post("/detections/batch", handler.BatchSaveDetections(pool))
+		r.Post("/tags", handler.CreateTag(pool))
 	})
 
 	addr := fmt.Sprintf(":%s", cfg.Port)

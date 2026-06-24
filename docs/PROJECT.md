@@ -172,7 +172,7 @@ Normalized (0..1) bounding boxes are deliberate: the same coordinates drive a th
 ### Phase 1 — Detect, correct, name, view + simple all-labels
 - **T1** In-browser detection (MediaPipe Face Detector). Render boxes as SVG overlay.
 - **T2** QC flow 1a: "Did we miss anyone?" tap-to-add; size = median of nearest 3–5; drag-resize with generous mobile hit targets.
-- **T3** Face-crop grid → name entry → save. Free-text names.
+- **T3** Face-list (one row per face: crop thumbnail + name input) → save. Free-text names, Tab/Enter navigation, progress counter.
 - **T4** Viewing: **tap-a-face-to-reveal**.
 - **T5** **Show-all-labels (simple):** above/below placement, short leader line, one collision-nudge pass.
 - **T6** Responsive correction UI (pinch-zoom/pan, big handles).

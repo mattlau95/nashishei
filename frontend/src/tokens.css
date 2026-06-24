@@ -1,0 +1,70 @@
+/*
+ * Design tokens — single source of truth for color, type, spacing, tap targets.
+ * Extracted from real T1–T3 usage; no invented values.
+ * T4/T5 must reference these only — no new magic numbers.
+ *
+ * Contrast notes (WCAG, on #ffffff background):
+ *   --color-text        #1a1a1a  → 17.4:1  AAA ✅
+ *   --color-text-muted  #555555  →  7.5:1  AAA ✅  (bumped from #666 which was AA only)
+ *   --color-error       #cc0000  →  5.9:1  AA  ✅
+ *   --color-overlay-label white text on rgba(20,20,20,0.92) → ~17:1 AAA ✅
+ *
+ * ⚠️ ACCENT USAGE RULES (the yellow is light — 1.37:1 on white — so it has rules):
+ *   • Text ON accent: use --color-text (ink) ONLY → 12.7:1. NEVER white (1.37:1, invisible).
+ *   • Accent as a fill/handle/progress ON a light bg: it fails the 3:1 UI-boundary bar
+ *     (1.37:1 vs white). ALWAYS give it a border (see --accent-border-on-light) or an
+ *     outline, or it disappears — including over light regions of a photo in the QC overlay.
+ *   • Accent is a brand/affordance color, never a contrast-carrying one.
+ */
+
+:root {
+  /* Color */
+  --color-bg:                 #ffffff;
+  --color-surface:            #f5f5f5;       /* thumbnail placeholders, subtle wells */
+  --color-text:               #1a1a1a;       /* primary text — 17.4:1 AAA */
+  --color-text-muted:         #555555;       /* helper text, labels — 7.5:1 AAA */
+  --color-accent:             #fadc00;       /* brand yellow — see ACCENT USAGE RULES above */
+  --color-accent-tint:        rgba(250, 220, 0, 0.09);  /* named-row background */
+  --color-accent-tint-border: rgba(250, 220, 0, 0.35);  /* named-row border */
+  --color-accent-border-on-light: #9c8a00;   /* darkened brand yellow (3.5:1 on white) for
+                                                borders/outlines on accent elements over light
+                                                bg — clears the 3:1 UI-boundary bar with margin */
+  --color-overlay-label:      rgba(20, 20, 20, 0.92); /* name labels over photos — T4/T5 */
+  --color-scrim:              rgba(0, 0, 0, 0.35);    /* detecting / loading overlay */
+  --color-error:              #cc0000;       /* 5.9:1 AA */
+
+  /* Type scale — REQUIRES html/:root font-size: 112.5% (=18px) in index.css.
+     If that line is missing, every value below computes off 16px and the
+     legible-at-arm's-length base silently breaks. Verify it exists. */
+  --text-xs:   0.78rem;  /* ~14px  fine print only — do NOT use for anything the Elder reads */
+  --text-sm:   0.89rem;  /* ~16px  helper / muted */
+  --text-base: 1rem;     /*  18px  body, inputs, buttons */
+  --text-lg:   1.22rem;  /* ~22px  success / section headings */
+
+  /* Spacing ramp (8px base) */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* Tap target — 44px minimum; use as width/height on all interactive touch targets */
+  --tap-target: 44px;
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+
+  /* Focus ring — two-layer so one layer always contrasts:
+     inner ink ring is visible on light UI; outer bg-colored ring is visible
+     over dark photos (T4/T5). Replaces the old all-yellow ring, which was
+     1.37:1 on white and effectively invisible to keyboard users. */
+  --focus-ring: 0 0 0 2px var(--color-text), 0 0 0 4px var(--color-bg);
+
+  /* Optional accent-tinted variant for when you specifically want the brand color
+     in the ring AND have an ink layer carrying the visibility: */
+  --focus-ring-accent: 0 0 0 2px var(--color-text),
+                       0 0 0 4px var(--color-bg),
+                       0 0 0 6px var(--color-accent);
+}
