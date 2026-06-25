@@ -4,9 +4,12 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/mattlau95/nashishei/api/internal/config"
@@ -125,6 +128,91 @@ func GetSharedImage(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
 			"thumbnail_url": store.URL(accountID, imageID, "thumb.jpg"),
 			"labels":        labels,
 		})
+	}
+}
+
+func NameDetectionViaShare(db *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := chi.URLParam(r, "token")
+
+		var req struct {
+			DetectionID string `json:"detection_id"`
+			DisplayName string `json:"display_name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		req.DisplayName = strings.TrimSpace(req.DisplayName)
+		if req.DisplayName == "" || len(req.DisplayName) > 200 {
+			http.Error(w, "display_name must be 1–200 chars", http.StatusBadRequest)
+			return
+		}
+
+		// Look up image by share token
+		var imageID, accountID string
+		err := db.QueryRow(r.Context(),
+			`SELECT id, account_id FROM images WHERE share_token = $1`,
+			token,
+		).Scan(&imageID, &accountID)
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		// Verify detection belongs to this image
+		var detImageID string
+		err = db.QueryRow(r.Context(),
+			`SELECT image_id FROM detections WHERE id = $1`,
+			req.DetectionID,
+		).Scan(&detImageID)
+		if err != nil || detImageID != imageID {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		// Create person under the image owner's account, then tag — use a transaction
+		// so the unique constraint on confirmed tags prevents double-naming
+		tx, err := db.Begin(r.Context())
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback(r.Context())
+
+		var personID string
+		err = tx.QueryRow(r.Context(),
+			`INSERT INTO persons (account_id, display_name) VALUES ($1, $2) RETURNING id`,
+			accountID, req.DisplayName,
+		).Scan(&personID)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+
+		_, err = tx.Exec(r.Context(),
+			`INSERT INTO tags (detection_id, person_id, status, created_by)
+			 VALUES ($1, $2, 'confirmed', 'viewer')`,
+			req.DetectionID, personID,
+		)
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				http.Error(w, "already named", http.StatusConflict)
+				return
+			}
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+
+		if err = tx.Commit(r.Context()); err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"display_name": req.DisplayName})
 	}
 }
 

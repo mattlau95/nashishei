@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import ShowAllOverlay from '../components/ShowAllOverlay'
 
@@ -20,11 +20,9 @@ type SharedImage = {
 }
 
 const HIT_PAD = 8
-// Faces below this Y get labels above; faces above it (top 25%) get labels below.
-// Minimum safe value is ~0.085 (label height / image height); 0.25 gives comfortable margin.
 const ABOVE_THRESHOLD = 0.25
 
-function NameLabel({ label }: { label: SharedLabel }) {
+function NameLabel({ label }: { label: SharedLabel & { display_name: string } }) {
   const above = label.bbox_y >= ABOVE_THRESHOLD
   const centerX = (label.bbox_x + label.bbox_w / 2) * 100
 
@@ -32,8 +30,6 @@ function NameLabel({ label }: { label: SharedLabel }) {
     <div
       style={{
         position: 'absolute',
-        // Center on face; clamp keeps label inside container at both edges.
-        // Assumes max label width ~200px (100px half-width in the preferred calc).
         left: `clamp(8px, calc(${centerX}% - 100px), calc(100% - 208px))`,
         ...(above
           ? { bottom: `calc(${(1 - label.bbox_y) * 100}% + 6px)` }
@@ -55,6 +51,129 @@ function NameLabel({ label }: { label: SharedLabel }) {
   )
 }
 
+function NamePopover({
+  label,
+  token,
+  onSaved,
+  onClose,
+}: {
+  label: SharedLabel
+  token: string
+  onSaved: (name: string) => void
+  onClose: () => void
+}) {
+  const [value, setValue] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const above = label.bbox_y >= ABOVE_THRESHOLD
+  const centerX = (label.bbox_x + label.bbox_w / 2) * 100
+
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  async function handleSave() {
+    const name = value.trim()
+    if (!name) return
+    setSaving(true)
+    setErr(null)
+    try {
+      const res = await fetch(`/api/share/${token}/name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ detection_id: label.detection_id, display_name: name }),
+      })
+      if (res.status === 409) {
+        // Someone else named it first — re-fetch will show the name
+        const data = await res.json().catch(() => ({}))
+        onSaved(data.display_name ?? name)
+        return
+      }
+      if (!res.ok) throw new Error('save failed')
+      onSaved(name)
+    } catch {
+      setErr('Could not save — try again')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: `clamp(8px, calc(${centerX}% - 100px), calc(100% - 208px))`,
+        ...(above
+          ? { bottom: `calc(${(1 - label.bbox_y) * 100}% + 6px)` }
+          : { top: `calc(${(label.bbox_y + label.bbox_h) * 100}% + 6px)` }),
+        width: 200,
+        backgroundColor: 'var(--color-overlay-label)',
+        borderRadius: 'var(--radius-sm)',
+        padding: '8px',
+        zIndex: 20,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px',
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') handleSave()
+          if (e.key === 'Escape') onClose()
+        }}
+        placeholder="Enter name…"
+        style={{
+          width: '100%',
+          padding: '4px 8px',
+          borderRadius: 'var(--radius-sm)',
+          border: 'none',
+          fontSize: 'var(--text-sm)',
+          boxSizing: 'border-box',
+        }}
+        disabled={saving}
+      />
+      {err && (
+        <p style={{ margin: 0, fontSize: 'var(--text-xs)', color: 'var(--color-error)' }}>{err}</p>
+      )}
+      <div style={{ display: 'flex', gap: '6px' }}>
+        <button
+          onClick={handleSave}
+          disabled={saving || !value.trim()}
+          style={{
+            flex: 1,
+            padding: '4px',
+            background: 'var(--color-accent)',
+            color: 'var(--color-text)',
+            border: 'none',
+            borderRadius: 'var(--radius-sm)',
+            cursor: saving || !value.trim() ? 'not-allowed' : 'pointer',
+            fontSize: 'var(--text-sm)',
+            fontWeight: 600,
+          }}
+        >
+          {saving ? '…' : 'Save'}
+        </button>
+        <button
+          onClick={onClose}
+          style={{
+            padding: '4px 8px',
+            background: 'transparent',
+            color: '#fff',
+            border: '1px solid rgba(255,255,255,0.3)',
+            borderRadius: 'var(--radius-sm)',
+            cursor: 'pointer',
+            fontSize: 'var(--text-sm)',
+          }}
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function FaceHitTarget({
   label,
   onTap,
@@ -62,11 +181,12 @@ function FaceHitTarget({
   label: SharedLabel
   onTap: () => void
 }) {
+  const named = label.display_name !== null
   return (
     <div
       role="button"
       tabIndex={0}
-      aria-label={label.display_name ?? undefined}
+      aria-label={label.display_name ?? 'Unknown — tap to name'}
       style={{
         position: 'absolute',
         left: `calc(${label.bbox_x * 100}% - ${HIT_PAD}px)`,
@@ -74,6 +194,9 @@ function FaceHitTarget({
         width: `calc(${label.bbox_w * 100}% + ${HIT_PAD * 2}px)`,
         height: `calc(${label.bbox_h * 100}% + ${HIT_PAD * 2}px)`,
         cursor: 'pointer',
+        // Unnamed faces get a faint dashed outline so they're discoverable
+        outline: named ? 'none' : '1.5px dashed rgba(255,255,255,0.45)',
+        outlineOffset: `-${HIT_PAD}px`,
       }}
       onClick={(e) => {
         e.stopPropagation()
@@ -94,11 +217,13 @@ export default function Viewer() {
   const [data, setData] = useState<SharedImage | null>(null)
   const [error, setError] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [namingId, setNamingId] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
 
   function handleToggleShowAll() {
     setShowAll((v) => !v)
     setActiveId(null)
+    setNamingId(null)
   }
 
   useEffect(() => {
@@ -133,6 +258,33 @@ export default function Viewer() {
     (l): l is SharedLabel & { display_name: string } => l.display_name !== null
   )
   const activeLabel = namedLabels.find((l) => l.detection_id === activeId)
+  const namingLabel = namingId ? data.labels.find((l) => l.detection_id === namingId) : null
+
+  function handleFaceTap(label: SharedLabel) {
+    if (label.display_name !== null) {
+      // Named face — toggle label display
+      setNamingId(null)
+      setActiveId(activeId === label.detection_id ? null : label.detection_id)
+    } else {
+      // Unnamed face — open name input
+      setActiveId(null)
+      setNamingId(namingId === label.detection_id ? null : label.detection_id)
+    }
+  }
+
+  function handleNamed(detectionId: string, name: string) {
+    setData((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        labels: prev.labels.map((l) =>
+          l.detection_id === detectionId ? { ...l, display_name: name } : l
+        ),
+      }
+    })
+    setNamingId(null)
+    setActiveId(detectionId)
+  }
 
   return (
     <main
@@ -149,7 +301,12 @@ export default function Viewer() {
           userSelect: 'none',
           touchAction: 'manipulation',
         }}
-        onClick={() => !showAll && setActiveId(null)}
+        onClick={() => {
+          if (!showAll) {
+            setActiveId(null)
+            setNamingId(null)
+          }
+        }}
       >
         <img
           src={data.thumbnail_url}
@@ -161,16 +318,22 @@ export default function Viewer() {
           <ShowAllOverlay labels={namedLabels} />
         ) : (
           <>
-            {namedLabels.map((label) => (
+            {data.labels.map((label) => (
               <FaceHitTarget
                 key={label.detection_id}
                 label={label}
-                onTap={() =>
-                  setActiveId(activeId === label.detection_id ? null : label.detection_id)
-                }
+                onTap={() => handleFaceTap(label)}
               />
             ))}
             {activeLabel && <NameLabel label={activeLabel} />}
+            {namingLabel && token && (
+              <NamePopover
+                label={namingLabel}
+                token={token}
+                onSaved={(name) => handleNamed(namingLabel.detection_id, name)}
+                onClose={() => setNamingId(null)}
+              />
+            )}
           </>
         )}
       </div>

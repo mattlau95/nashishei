@@ -49,6 +49,7 @@ func main() {
 	r.Post("/auth/login", handler.Login(pool, cfg))
 	r.Post("/auth/logout", handler.Logout())
 	r.Get("/share/{token}", handler.GetSharedImage(pool, store))
+	r.Post("/share/{token}/name", handler.NameDetectionViaShare(pool))
 
 	// Serve uploaded files
 	r.Get("/files/*", func(w http.ResponseWriter, r *http.Request) {
