@@ -13,8 +13,9 @@ const LINE_GAP = 0.02
 const NUDGE_GAP = 0.008
 const CHAR_W = 0.016
 const LABEL_PAD = 0.04
-const ABOVE_THRESHOLD = 0.25
 const LABEL_H_EST = 0.06
+const SHELF_H = LABEL_H_EST + NUDGE_GAP
+const ROW_TOLERANCE = 0.12
 
 type PlacedLabel = Label & {
   above: boolean
@@ -27,140 +28,128 @@ type PlacedLabel = Label & {
   lineY2: number
 }
 
-const MAX_PASSES = 8
+type FaceRow = {
+  faces: Label[]
+  top: number
+  bottom: number
+  left: number
+  right: number
+}
 
-function resolveCollisions(labels: PlacedLabel[]): void {
-  labels.sort((a, b) => a.labelLeft - b.labelLeft)
-  let changed = true
-  let pass = 0
-  while (changed && pass < MAX_PASSES) {
-    changed = false
-    pass++
-    for (let i = 1; i < labels.length; i++) {
-      const prev = labels[i - 1]
-      const cur = labels[i]
-      const minLeft = prev.labelLeft + prev.estWidth + NUDGE_GAP
-      if (minLeft > cur.labelLeft) {
-        cur.labelLeft = Math.min(minLeft, 1 - cur.estWidth)
-        changed = true
-      }
-    }
-    for (let i = labels.length - 2; i >= 0; i--) {
-      const next = labels[i + 1]
-      const cur = labels[i]
-      const maxRight = next.labelLeft - NUDGE_GAP
-      if (cur.labelLeft + cur.estWidth > maxRight) {
-        cur.labelLeft = Math.max(maxRight - cur.estWidth, 0)
-        changed = true
-      }
+// Group faces into horizontal rows by Y proximity.
+function clusterRows(faces: Label[]): FaceRow[] {
+  const sorted = [...faces].sort((a, b) => a.bbox_y - b.bbox_y)
+  const rows: Label[][] = [[sorted[0]]]
+  for (let i = 1; i < sorted.length; i++) {
+    const last = rows[rows.length - 1]
+    const lastTop = Math.min(...last.map(f => f.bbox_y))
+    if (sorted[i].bbox_y - lastTop <= ROW_TOLERANCE) {
+      last.push(sorted[i])
+    } else {
+      rows.push([sorted[i]])
     }
   }
-  for (const label of labels) {
-    label.labelLeft = Math.max(0, Math.min(label.labelLeft, 1 - label.estWidth))
-    label.lineX2 = label.labelLeft + label.estWidth / 2
+  return rows.map(faces => ({
+    faces,
+    top:    Math.min(...faces.map(f => f.bbox_y)),
+    bottom: Math.max(...faces.map(f => f.bbox_y + f.bbox_h)),
+    left:   Math.min(...faces.map(f => f.bbox_x)),
+    right:  Math.max(...faces.map(f => f.bbox_x + f.bbox_w)),
+  }))
+}
+
+// Build a single SVG path string that outlines every face row as one shape.
+// Each row becomes a subpath (M…Z); SVG renders them with one stroke.
+function buildFramePath(rows: FaceRow[]): string {
+  return rows
+    .map(r => `M ${r.left} ${r.top} L ${r.right} ${r.top} L ${r.right} ${r.bottom} L ${r.left} ${r.bottom} Z`)
+    .join(' ')
+}
+
+// Pack faces into horizontal shelves on one side of the frame edge.
+//
+// Step 1 — proximity sort: faces whose edge is closest to frameEdge go first →
+//   they land on shelf 0 (innermost, shortest leader line).
+//   "above": closest = smallest bbox_y.
+//   "below": closest = largest bbox_y + bbox_h.
+//
+// Step 2 — within each shelf, re-sort by face X center so labels read
+//   left-to-right and lines don't cross within the same shelf.
+function packShelves(faces: Label[], above: boolean, frameEdge: number): PlacedLabel[] {
+  if (faces.length === 0) return []
+
+  const byProximity = above
+    ? [...faces].sort((a, b) => a.bbox_y - b.bbox_y)
+    : [...faces].sort((a, b) => (b.bbox_y + b.bbox_h) - (a.bbox_y + a.bbox_h))
+
+  type Shelved = { label: Label; shelf: number; estWidth: number }
+  const shelved: Shelved[] = []
+  let shelf = 0
+  let shelfW = 0
+  for (const l of byProximity) {
+    const estWidth = Math.max(l.display_name.length * CHAR_W + LABEL_PAD, 0.08)
+    if (shelfW + estWidth > 1 - NUDGE_GAP && shelfW > 0) { shelf++; shelfW = 0 }
+    shelved.push({ label: l, shelf, estWidth })
+    shelfW += estWidth + NUDGE_GAP
   }
-}
 
-function getLabelYRange(p: PlacedLabel): [number, number] {
-  return p.above
-    ? [p.lineAnchorY - LABEL_H_EST, p.lineAnchorY]
-    : [p.lineAnchorY, p.lineAnchorY + LABEL_H_EST]
-}
+  const result: PlacedLabel[] = []
+  for (let s = 0; s <= shelf; s++) {
+    const inShelf = shelved
+      .filter(x => x.shelf === s)
+      .sort((a, b) => (a.label.bbox_x + a.label.bbox_w / 2) - (b.label.bbox_x + b.label.bbox_w / 2))
 
-function labelsOverlap2D(a: PlacedLabel, b: PlacedLabel): boolean {
-  if (a.labelLeft + a.estWidth <= b.labelLeft || b.labelLeft + b.estWidth <= a.labelLeft) return false
-  const [aY1, aY2] = getLabelYRange(a)
-  const [bY1, bY2] = getLabelYRange(b)
-  return aY1 < bY2 && bY1 < aY2
-}
+    const lineAnchorY = above
+      ? frameEdge - LINE_GAP - s * SHELF_H
+      : frameEdge + LINE_GAP + s * SHELF_H
 
-function applyFlip(label: PlacedLabel, toAbove: boolean): void {
-  label.above = toAbove
-  const anchorY = toAbove ? label.bbox_y - LINE_GAP : label.bbox_y + label.bbox_h + LINE_GAP
-  label.lineAnchorY = anchorY
-  label.lineY1 = toAbove ? label.bbox_y : label.bbox_y + label.bbox_h
-  label.lineY2 = anchorY
-}
+    // Center the shelf over the centroid of its faces rather than anchoring at x=0.
+    const totalW    = inShelf.reduce((sum, x) => sum + x.estWidth, 0) + (inShelf.length - 1) * NUDGE_GAP
+    const centroidX = inShelf.reduce((sum, x) => sum + x.label.bbox_x + x.label.bbox_w / 2, 0) / inShelf.length
+    let labelLeft   = Math.max(0, Math.min(1 - totalW, centroidX - totalW / 2))
 
-function labelHitsFace(
-  labelLeft: number, estWidth: number, anchorY: number, above: boolean, faces: Label[], ownId: string
-): boolean {
-  const lx1 = labelLeft
-  const lx2 = labelLeft + estWidth
-  const ly1 = above ? anchorY - LABEL_H_EST : anchorY
-  const ly2 = above ? anchorY : anchorY + LABEL_H_EST
-  return faces.some(
-    (f) =>
-      f.detection_id !== ownId &&
-      lx1 < f.bbox_x + f.bbox_w &&
-      lx2 > f.bbox_x &&
-      ly1 < f.bbox_y + f.bbox_h &&
-      ly2 > f.bbox_y
-  )
+    for (const { label: l, estWidth } of inShelf) {
+      result.push({
+        ...l, above, estWidth, labelLeft, lineAnchorY,
+        lineX1: l.bbox_x + l.bbox_w / 2,
+        lineY1: above ? l.bbox_y : l.bbox_y + l.bbox_h,
+        lineX2: labelLeft + estWidth / 2,
+        lineY2: lineAnchorY,
+      })
+      labelLeft += estWidth + NUDGE_GAP
+    }
+  }
+  return result
 }
 
 function computeLayout(labels: Label[]): PlacedLabel[] {
-  const placed: PlacedLabel[] = labels.map((l) => {
-    const estWidth = Math.max(l.display_name.length * CHAR_W + LABEL_PAD, 0.08)
-    const centerX = l.bbox_x + l.bbox_w / 2
-    const labelLeft = Math.min(Math.max(centerX - estWidth / 2, 0), 1 - estWidth)
+  if (labels.length === 0) return []
 
-    let above = l.bbox_y >= ABOVE_THRESHOLD
-    const anchorAbove = l.bbox_y - LINE_GAP
-    const anchorBelow = l.bbox_y + l.bbox_h + LINE_GAP
-    const hitsAbove = labelHitsFace(labelLeft, estWidth, anchorAbove, true, labels, l.detection_id)
-    const hitsBelow = labelHitsFace(labelLeft, estWidth, anchorBelow, false, labels, l.detection_id)
-    if (above && hitsAbove && !hitsBelow) above = false
-    else if (!above && hitsBelow && !hitsAbove) above = true
+  const frameTop    = Math.min(...labels.map(l => l.bbox_y))
+  const frameBottom = Math.max(...labels.map(l => l.bbox_y + l.bbox_h))
 
-    const lineAnchorY = above ? anchorAbove : anchorBelow
-    const lineX1 = centerX
-    const lineY1 = above ? l.bbox_y : l.bbox_y + l.bbox_h
-    const lineX2 = labelLeft + estWidth / 2
-    const lineY2 = lineAnchorY
-
-    return { ...l, above, estWidth, labelLeft, lineAnchorY, lineX1, lineY1, lineX2, lineY2 }
-  })
-
-  let aboveGroup = placed.filter((p) => p.above)
-  let belowGroup = placed.filter((p) => !p.above)
-  resolveCollisions(aboveGroup)
-  resolveCollisions(belowGroup)
-
-  // Cross-group pass: a "below" label and an "above" label from adjacent vertically-stacked
-  // faces can overlap even after horizontal nudging because resolveCollisions only operates
-  // within each group. Try to flip the offending label to the other side of its face.
-  for (const a of aboveGroup) {
-    for (const b of belowGroup) {
-      if (!labelsOverlap2D(a, b)) continue
-      // Try flipping b (below→above its face)
-      if (!labelHitsFace(b.labelLeft, b.estWidth, b.bbox_y - LINE_GAP, true, labels, b.detection_id)) {
-        applyFlip(b, true)
-        continue
-      }
-      // Try flipping a (above→below its face)
-      if (!labelHitsFace(a.labelLeft, a.estWidth, a.bbox_y + a.bbox_h + LINE_GAP, false, labels, a.detection_id)) {
-        applyFlip(a, false)
-        break
-      }
-    }
+  // Assign each face to whichever frame edge its own bbox is physically closest to.
+  // This keeps leader lines as short as possible and avoids labels inside the frame.
+  const topGroup: Label[]    = []
+  const bottomGroup: Label[] = []
+  for (const l of labels) {
+    const distTop    = l.bbox_y - frameTop
+    const distBottom = frameBottom - (l.bbox_y + l.bbox_h)
+    ;(distTop <= distBottom ? topGroup : bottomGroup).push(l)
   }
 
-  // Re-group and re-resolve horizontal collisions after any flips
-  aboveGroup = placed.filter((p) => p.above)
-  belowGroup = placed.filter((p) => !p.above)
-  resolveCollisions(aboveGroup)
-  resolveCollisions(belowGroup)
-
-  return [...aboveGroup, ...belowGroup]
+  return [
+    ...packShelves(topGroup,    true,  frameTop),
+    ...packShelves(bottomGroup, false, frameBottom),
+  ]
 }
 
 export default function ShowAllOverlay({ labels }: { labels: Label[] }) {
+  const rows   = useMemo(() => labels.length ? clusterRows(labels) : [], [labels])
   const placed = useMemo(() => computeLayout(labels), [labels])
 
   const containerRef = useRef<HTMLDivElement>(null)
   const labelRefs = useRef<Map<string, HTMLDivElement>>(new Map())
-  // lineX2 overrides keyed by detection_id, set after measuring actual label widths
   const [measuredX2, setMeasuredX2] = useState<Map<string, number>>(new Map())
 
   useLayoutEffect(() => {
@@ -181,12 +170,23 @@ export default function ShowAllOverlay({ labels }: { labels: Label[] }) {
 
   return (
     <div ref={containerRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-      {/* Leader lines in SVG */}
       <svg
         viewBox="0 0 1 1"
         preserveAspectRatio="none"
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 9 }}
       >
+        {/* DEBUG: one path outlining all face rows as a single shape */}
+        {rows.length > 0 && (
+          <path
+            d={buildFramePath(rows)}
+            fill="none"
+            stroke="rgba(255,80,80,0.8)"
+            strokeWidth="2"
+            strokeDasharray="0.01 0.01"
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
+
         {placed.map((p) => (
           <line
             key={p.detection_id}
@@ -201,7 +201,6 @@ export default function ShowAllOverlay({ labels }: { labels: Label[] }) {
         ))}
       </svg>
 
-      {/* Label pills in HTML */}
       {placed.map((p) => (
         <div
           key={p.detection_id}

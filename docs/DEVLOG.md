@@ -17,6 +17,39 @@
 ---
 ## History (Log Entries start here)
 
+## 2026-06-25 — Show-all label layout overhaul (boundary placement)
+
+**Session Goal:** Fix the show-all label layout for dense group photos (15–20 faces): no label inside a face bbox, no label covering another label, lines as short as possible, overall visual clarity.
+**Status:** Completed ✅
+
+### The "Why" (Decision Log)
+
+* **Single cluster frame (bounding box of all faces) over per-face above/below:** The original approach placed each label directly above or below its own face. For 15+ people this causes pile-up — all labels on one side, heavily overlapping. A single bounding box frame around all faces forces labels into two clean margin zones (top / bottom), making the layout predictable and readable.
+
+* **Per-row rectangles → single `<path>` for the debug frame:** Initially drew one `<rect>` per face row. Switched to a single `<path>` element with one subpath (`M…Z`) per row — one SVG element, one stroke, visually reads as one frame shape even though the rows are separate bands.
+
+* **Closest-edge split over image-midpoint split:** First attempt split faces at `frameMidY = (frameTop + frameBottom) / 2` — faces above the midpoint → top margin, below → bottom margin. Debug logging revealed the "rows" produced by clustering actually **overlap in Y** (e.g., `gap_above = -0.014`): a face deep in the front row has a lower bbox_y than some faces in the back row. The midpoint split misassigned many faces. The fix: for each face, compute `distToTop = face.bbox_y − frameTop` and `distToBottom = frameBottom − (face.bbox_y + face.bbox_h)`; assign to whichever margin is closer. This is robust to overlapping rows because it operates per-face, not per-cluster.
+
+* **Proximity-first shelf ordering (closest face → innermost shelf):** Within `packShelves`, faces are first sorted by distance to the frame edge (closest first), then assigned to shelves in that order. The innermost shelf (shelf 0) is physically closest to the frame and gives the shortest leader line. Faces deeper in the cluster overflow to shelf 1, 2, etc. After shelf assignment, faces are re-sorted by X within each shelf so left-to-right label order matches left-to-right face order and lines within a shelf never cross.
+
+* **Centroid-centered shelf start over left-anchoring at X=0:** `packShelves` originally started every shelf at `labelLeft = 0`, making all labels pile up on the left side of the image regardless of where the faces were. Fix: compute the centroid X of all faces on the shelf, then start the label row at `centroidX − totalShelfWidth / 2`. Each label ends up roughly above/below its own face rather than off to the left.
+
+* **Reverted per-face inline placement:** Attempted a `tryInline` pass — before shelving, try to place each label directly adjacent to its face bbox (below for bottom-group, above for top-group), skipping any position that would overlap another face or a committed label. Works correctly for isolated faces but produces visual chaos for dense groups: labels end up at 7+ different Y levels mixed with 2–3 margin shelf rows, and leader lines from inline labels cross those from margin labels. Reverted to the two-zone margin approach, which restricts all labels to 2–4 consistent Y levels per photo.
+
+### Technical Notes
+
+* `clusterRows` groups faces by `bbox_y` proximity (ROW_TOLERANCE = 0.12). For perspective group photos, rows can overlap in Y because front-row faces have large `bbox_h` extending below back-row `bbox_y` values. The cluster is kept for frame visualization (debug `<path>`) but is not used for label placement — closest-edge split handles all assignments.
+* Debug logging (`debugLayout`) was added mid-session and removed before commit; key signals: per-row Y bounds and gap sizes, per-label line length and whether the pill landed inside any row bbox.
+* `SHELF_H = LABEL_H_EST + NUDGE_GAP = 0.068` normalized units per shelf. For a 16-person photo needing 3 shelves in the top margin, the outermost shelf reaches `frameTop − 0.02 − 2×0.068 = frameTop − 0.156` above the frame — visible on photos where the cluster starts near the vertical center.
+
+### Next Session
+
+* Validate layout on a wider range of photos (portrait vs landscape, 4-person vs 20-person)
+* Consider removing the debug frame `<path>` once layout is confirmed stable
+* Evaluate whether margin label lines that cross (different shelves crossing each other) need a dedicated no-crossing sort pass
+
+---
+
 ## 2026-06-25 - End-to-end debugging: face detection, share link, auth UI, label layout
 
 **Session Goal:** Get the Phase 2 stack working end-to-end — ML detects all faces, share link opens the viewer, show-all labels connect correctly.
