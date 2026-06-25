@@ -15,12 +15,34 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgres://nashishei:nashishei@db:5432/nashishei?sslmode=disable
+      - PORT=8080
+      - STORAGE_PATH=/storage
+      - JWT_SECRET=dev-secret-change-in-prod
+      - BASE_URL=http://localhost:8080
+      - FRONTEND_URL=http://localhost:5173
+      - ML_SIDECAR_URL=http://ml:8000
+    volumes:
+      - ./storage:/storage
+    depends_on:
+      db:
+        condition: service_healthy
+
   ml:
     build: ./ml
     ports:
       - "8000:8000"
     environment:
       - ENV=development
+    volumes:
+      - ./ml/main.py:/app/main.py
 
 volumes:
   db_data:

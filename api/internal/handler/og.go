@@ -63,7 +63,7 @@ func ShareOGPage(db *pgxpool.Pool, store *storage.Local, cfg config.Config) http
 		}
 
 		thumbnailURL := store.URL(accountID, imageID, "thumb.jpg")
-		shareURL := cfg.BaseURL + "/s/" + token
+		shareURL := cfg.FrontendURL + "/s/" + token
 
 		d := ogData{
 			Title:        buildOGTitle(names),

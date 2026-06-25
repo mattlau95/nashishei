@@ -3,9 +3,6 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
-	"image"
-	_ "image/jpeg"
-	_ "image/png"
 	"net/http"
 
 	"github.com/disintegration/imaging"
@@ -54,8 +51,8 @@ func UploadImage(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
 			return
 		}
 
-		// Decode to get dimensions
-		img, _, err := image.Decode(bytes.NewReader(data))
+		// Decode and auto-orient via EXIF so dimensions and thumbnail match detection coords
+		img, err := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
 		if err != nil {
 			http.Error(w, "could not read image", http.StatusBadRequest)
 			return

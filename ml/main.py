@@ -2,7 +2,7 @@ import io
 import numpy as np
 import insightface
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from PIL import Image
+from PIL import Image, ImageOps
 
 app = FastAPI(title="nashishei-ml")
 
@@ -13,7 +13,7 @@ def get_face_app() -> insightface.app.FaceAnalysis:
     global _face_app
     if _face_app is None:
         _face_app = insightface.app.FaceAnalysis(name="buffalo_l")
-        _face_app.prepare(ctx_id=-1)
+        _face_app.prepare(ctx_id=-1, det_size=(1280, 1280))
     return _face_app
 
 
@@ -26,14 +26,24 @@ def health():
 async def detect_and_embed(image: UploadFile = File(...)):
     data = await image.read()
     try:
-        pil_img = Image.open(io.BytesIO(data)).convert("RGB")
+        pil_img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
     except Exception:
         raise HTTPException(status_code=400, detail="Cannot decode image")
 
     img_w, img_h = pil_img.size
-    img_array = np.array(pil_img)
+    # InsightFace expects BGR
+    img_array = np.array(pil_img)[:, :, ::-1]
 
-    faces = get_face_app().get(img_array)
+    face_app = get_face_app()
+    # Dynamically set detection size to match the image (rounded to 32, capped at 1920)
+    det_w = min(1920, (img_w + 31) // 32 * 32)
+    det_h = min(1920, (img_h + 31) // 32 * 32)
+    face_app.models['detection'].input_size = (det_w, det_h)
+    faces = face_app.get(img_array)
+
+    print(f"image {img_w}x{img_h} det_size=({det_w},{det_h}) found {len(faces)} face(s)", flush=True)
+    for i, f in enumerate(faces):
+        print(f"  face {i}: bbox={f.bbox.tolist()} det_score={getattr(f, 'det_score', '?')}", flush=True)
 
     result = []
     for face in faces:

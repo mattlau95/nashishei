@@ -48,7 +48,7 @@ func GenerateShareToken(db *pgxpool.Pool, cfg config.Config) http.HandlerFunc {
 			return
 		}
 
-		shareURL := cfg.BaseURL + "/s/" + token
+		shareURL := cfg.FrontendURL + "/s/" + token
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
 			"share_token": token,

@@ -12,18 +12,21 @@ type Config struct {
 	Env                 string
 	JWTSecret           string
 	BaseURL             string
+	FrontendURL         string
 	MLSidecarURL        string
 	SuggestionThreshold float64
 }
 
 func Load() Config {
+	base := getEnv("BASE_URL", "http://localhost:8080")
 	return Config{
 		Port:                getEnv("PORT", "8080"),
 		DatabaseURL:         getEnv("DATABASE_URL", "postgres://nashishei:nashishei@localhost:5432/nashishei?sslmode=disable"),
 		StoragePath:         getEnv("STORAGE_PATH", "./storage"),
 		Env:                 getEnv("ENV", "development"),
 		JWTSecret:           getEnv("JWT_SECRET", "dev-secret-change-in-prod"),
-		BaseURL:             getEnv("BASE_URL", "http://localhost:8080"),
+		BaseURL:             base,
+		FrontendURL:         getEnv("FRONTEND_URL", base),
 		MLSidecarURL:        getEnv("ML_SIDECAR_URL", "http://localhost:8000"),
 		SuggestionThreshold: getEnvFloat("SUGGESTION_THRESHOLD", 0.35),
 	}
