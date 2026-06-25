@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{.Title}}</title>
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{.Title}}">
+  <meta property="og:description" content="{{.Description}}">
+  <meta property="og:image" content="{{.ThumbnailURL}}">
+  <meta property="og:url" content="{{.ShareURL}}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{.Title}}">
+  <meta name="twitter:description" content="{{.Description}}">
+  <meta name="twitter:image" content="{{.ThumbnailURL}}">
+  <meta http-equiv="refresh" content="0; url={{.ShareURL}}#app">
+  <script>window.location.replace("{{.ShareURL}}" + "#app")</script>
+</head>
+<body></body>
+</html>

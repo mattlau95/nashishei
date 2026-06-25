@@ -23,6 +23,8 @@ export default function FaceNameList({ file, imgSrc, detections }: Props) {
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkInput, setBulkInput] = useState('')
   const [done, setDone] = useState(false)
   const [savedImageId, setSavedImageId] = useState<string | null>(null)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
@@ -57,6 +59,26 @@ export default function FaceNameList({ file, imgSrc, detections }: Props) {
   }, [imgSrc, detections])
 
   const namedCount = Object.values(names).filter((n) => n.trim() !== '').length
+
+  function parseBulkNames(input: string): string[] {
+    return input
+      .split(/[,，、]/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+  }
+
+  function applyBulkNames() {
+    const parsed = parseBulkNames(bulkInput)
+    setNames((prev) => {
+      const next = { ...prev }
+      sorted.forEach((det, i) => {
+        if (i < parsed.length) next[det.id] = parsed[i]
+      })
+      return next
+    })
+    setBulkOpen(false)
+    setBulkInput('')
+  }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>, idx: number) {
     if (e.key === 'Enter' || e.key === 'Tab') {
@@ -238,10 +260,82 @@ export default function FaceNameList({ file, imgSrc, detections }: Props) {
         Unnamed faces will be saved without a label.
       </p>
 
-      {/* Progress counter */}
-      <p style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 'var(--space-3)' }}>
-        {namedCount} of {sorted.length} named
-      </p>
+      {/* Progress counter + bulk entry toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)' }}>
+        <p style={{ fontSize: 'var(--text-sm)', fontWeight: 600, margin: 0 }}>
+          {namedCount} of {sorted.length} named
+        </p>
+        <button
+          onClick={() => { setBulkOpen((v) => !v); setBulkInput('') }}
+          style={{
+            padding: '2px 10px',
+            background: bulkOpen ? 'var(--color-text-muted)' : 'transparent',
+            color: bulkOpen ? '#fff' : 'var(--color-text-muted)',
+            border: '1px solid',
+            borderColor: bulkOpen ? 'transparent' : 'var(--color-text-muted)',
+            borderRadius: 'var(--radius-sm)',
+            cursor: 'pointer',
+            fontSize: 'var(--text-sm)',
+          }}
+        >
+          Paste names
+        </button>
+      </div>
+
+      {/* Bulk name entry */}
+      {bulkOpen && (
+        <div style={{ marginBottom: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+          <textarea
+            autoFocus
+            value={bulkInput}
+            onChange={(e) => setBulkInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setBulkOpen(false); setBulkInput('') } }}
+            placeholder="Alice, Bob, 张三, 李四, …"
+            rows={3}
+            style={{
+              width: '100%',
+              padding: 'var(--space-2)',
+              fontSize: 'var(--text-base)',
+              border: '1px solid #ccc',
+              borderRadius: 'var(--radius-sm)',
+              resize: 'vertical',
+              boxSizing: 'border-box',
+            }}
+          />
+          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            <button
+              onClick={applyBulkNames}
+              disabled={!bulkInput.trim()}
+              style={{
+                padding: '4px 16px',
+                background: bulkInput.trim() ? '#333' : '#ccc',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 'var(--radius-sm)',
+                cursor: bulkInput.trim() ? 'pointer' : 'not-allowed',
+                fontSize: 'var(--text-sm)',
+                fontWeight: 600,
+              }}
+            >
+              Apply
+            </button>
+            <button
+              onClick={() => { setBulkOpen(false); setBulkInput('') }}
+              style={{
+                padding: '4px 12px',
+                background: 'transparent',
+                color: 'var(--color-text-muted)',
+                border: '1px solid #ccc',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+                fontSize: 'var(--text-sm)',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Face list */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
