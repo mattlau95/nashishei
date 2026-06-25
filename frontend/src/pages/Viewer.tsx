@@ -8,7 +8,7 @@ type SharedLabel = {
   bbox_y: number
   bbox_w: number
   bbox_h: number
-  display_name: string
+  display_name: string | null
 }
 
 type SharedImage = {
@@ -66,7 +66,7 @@ function FaceHitTarget({
     <div
       role="button"
       tabIndex={0}
-      aria-label={label.display_name}
+      aria-label={label.display_name ?? undefined}
       style={{
         position: 'absolute',
         left: `calc(${label.bbox_x * 100}% - ${HIT_PAD}px)`,
@@ -129,7 +129,9 @@ export default function Viewer() {
     )
   }
 
-  const namedLabels = data.labels.filter((l) => l.display_name)
+  const namedLabels = data.labels.filter(
+    (l): l is SharedLabel & { display_name: string } => l.display_name !== null
+  )
   const activeLabel = namedLabels.find((l) => l.detection_id === activeId)
 
   return (

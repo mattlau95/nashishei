@@ -87,13 +87,13 @@ func GetSharedImage(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
 			return
 		}
 
-		// Fetch confirmed tags
+		// Fetch all detections; named ones carry display_name, unnamed carry null
 		rows, err := db.Query(r.Context(),
 			`SELECT d.id, d.bbox_x, d.bbox_y, d.bbox_w, d.bbox_h, p.display_name
 			 FROM detections d
-			 JOIN tags t ON t.detection_id = d.id
-			 JOIN persons p ON p.id = t.person_id
-			 WHERE d.image_id = $1 AND t.status = 'confirmed'`,
+			 LEFT JOIN tags t ON t.detection_id = d.id AND t.status = 'confirmed'
+			 LEFT JOIN persons p ON p.id = t.person_id
+			 WHERE d.image_id = $1`,
 			imageID,
 		)
 		if err != nil {
@@ -108,7 +108,7 @@ func GetSharedImage(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
 			BBoxY       float64 `json:"bbox_y"`
 			BBoxW       float64 `json:"bbox_w"`
 			BBoxH       float64 `json:"bbox_h"`
-			DisplayName string  `json:"display_name"`
+			DisplayName *string `json:"display_name"`
 		}
 		labels := []label{}
 		for rows.Next() {
