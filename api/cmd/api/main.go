@@ -65,6 +65,7 @@ func main() {
 
 		r.Post("/images", handler.UploadImage(pool, store))
 		r.Get("/images/{id}", handler.GetImage(pool, store))
+		r.Post("/images/{id}/detect", handler.DetectImage(pool, store, cfg))
 		r.Post("/images/{id}/share", handler.GenerateShareToken(pool, cfg))
 		r.Delete("/images/{id}/share", handler.RevokeShareToken(pool))
 

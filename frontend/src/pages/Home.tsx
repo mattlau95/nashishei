@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import ImageDetector from '../components/ImageDetector'
 import FaceNameList from '../components/FaceNameList'
-import type { Detection } from '../types/detection'
+import type { Detection, Suggestion } from '../types/detection'
 
 type Step = 'pick' | 'qc' | 'name'
 
@@ -13,6 +13,8 @@ export default function Home() {
   const [file, setFile] = useState<File | null>(null)
   const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [confirmedDetections, setConfirmedDetections] = useState<Detection[]>([])
+  const [confirmedImageId, setConfirmedImageId] = useState<string | null>(null)
+  const [confirmedSuggestions, setConfirmedSuggestions] = useState<Suggestion[]>([])
   const [pickError, setPickError] = useState<string | null>(null)
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -33,8 +35,10 @@ export default function Home() {
     setStep('qc')
   }
 
-  function handleConfirm(dets: Detection[]) {
+  function handleConfirm(dets: Detection[], imageId: string, suggestions: Suggestion[]) {
     setConfirmedDetections(dets)
+    setConfirmedImageId(imageId)
+    setConfirmedSuggestions(suggestions)
     setStep('name')
   }
 
@@ -43,6 +47,8 @@ export default function Home() {
     setFile(null)
     setImageSrc(null)
     setConfirmedDetections([])
+    setConfirmedImageId(null)
+    setConfirmedSuggestions([])
     setStep('pick')
   }
 
@@ -80,8 +86,8 @@ export default function Home() {
         </button>
       )}
 
-      {step === 'qc' && imageSrc && (
-        <ImageDetector src={imageSrc} onConfirm={handleConfirm} />
+      {step === 'qc' && imageSrc && file && (
+        <ImageDetector src={imageSrc} file={file} onConfirm={handleConfirm} />
       )}
 
       {step === 'name' && imageSrc && file && (
@@ -93,6 +99,8 @@ export default function Home() {
             file={file}
             imgSrc={imageSrc}
             detections={confirmedDetections}
+            imageId={confirmedImageId ?? undefined}
+            suggestions={confirmedSuggestions}
           />
         </>
       )}

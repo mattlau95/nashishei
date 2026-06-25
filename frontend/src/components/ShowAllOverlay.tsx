@@ -32,6 +32,40 @@ type PlacedLabel = Label & {
   lineY2: number
 }
 
+const MAX_PASSES = 8
+
+function resolveCollisions(labels: PlacedLabel[]): void {
+  labels.sort((a, b) => a.labelLeft - b.labelLeft)
+  let changed = true
+  let pass = 0
+  while (changed && pass < MAX_PASSES) {
+    changed = false
+    pass++
+    for (let i = 1; i < labels.length; i++) {
+      const prev = labels[i - 1]
+      const cur = labels[i]
+      const minLeft = prev.labelLeft + prev.estWidth + NUDGE_GAP
+      if (minLeft > cur.labelLeft) {
+        cur.labelLeft = Math.min(minLeft, 1 - cur.estWidth)
+        changed = true
+      }
+    }
+    for (let i = labels.length - 2; i >= 0; i--) {
+      const next = labels[i + 1]
+      const cur = labels[i]
+      const maxRight = next.labelLeft - NUDGE_GAP
+      if (cur.labelLeft + cur.estWidth > maxRight) {
+        cur.labelLeft = Math.max(maxRight - cur.estWidth, 0)
+        changed = true
+      }
+    }
+  }
+  for (const label of labels) {
+    label.labelLeft = Math.max(0, Math.min(label.labelLeft, 1 - label.estWidth))
+    label.lineX2 = label.labelLeft + label.estWidth / 2
+  }
+}
+
 function computeLayout(labels: Label[]): PlacedLabel[] {
   const placed: PlacedLabel[] = labels.map((l) => {
     const above = l.bbox_y >= ABOVE_THRESHOLD
@@ -50,21 +84,13 @@ function computeLayout(labels: Label[]): PlacedLabel[] {
     return { ...l, above, estWidth, labelLeft, labelTopY, lineX1, lineY1, lineX2, lineY2 }
   })
 
-  // Sort left → right for the nudge pass
-  placed.sort((a, b) => a.labelLeft - b.labelLeft)
+  const aboveGroup = placed.filter((p) => p.above)
+  const belowGroup = placed.filter((p) => !p.above)
 
-  for (let i = 1; i < placed.length; i++) {
-    const prev = placed[i - 1]
-    const cur = placed[i]
-    const minLeft = prev.labelLeft + prev.estWidth + NUDGE_GAP
-    if (minLeft > cur.labelLeft) {
-      cur.labelLeft = Math.min(minLeft, 1 - cur.estWidth)
-      // Update leader line x2 to match nudged position
-      cur.lineX2 = cur.labelLeft + cur.estWidth / 2
-    }
-  }
+  resolveCollisions(aboveGroup)
+  resolveCollisions(belowGroup)
 
-  return placed
+  return [...aboveGroup, ...belowGroup]
 }
 
 export default function ShowAllOverlay({ labels }: { labels: Label[] }) {

@@ -2,12 +2,13 @@ import { useRef, useEffect, useState } from 'react'
 import QCOverlay from './QCOverlay'
 import { useFaceDetection } from '../hooks/useFaceDetection'
 import { useZoomPan } from '../hooks/useZoomPan'
-import type { Detection } from '../types/detection'
+import type { Detection, Suggestion } from '../types/detection'
 import './ImageDetector.css'
 
 type Props = {
   src: string
-  onConfirm: (detections: Detection[]) => void
+  file: File
+  onConfirm: (detections: Detection[], imageId: string, suggestions: Suggestion[]) => void
 }
 
 const ADD_BTN_STYLE = (addMode: boolean): React.CSSProperties => ({
@@ -21,10 +22,10 @@ const ADD_BTN_STYLE = (addMode: boolean): React.CSSProperties => ({
   whiteSpace: 'nowrap',
 })
 
-export default function ImageDetector({ src, onConfirm }: Props) {
+export default function ImageDetector({ src, file, onConfirm }: Props) {
   const imgRef = useRef<HTMLImageElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
-  const { detections, setDetections, detect, detecting, error } = useFaceDetection()
+  const { detections, setDetections, detect, detecting, error, suggestions, imageId } = useFaceDetection()
   const [addMode, setAddMode] = useState(false)
 
   const { scale: zoomScale, transformStyle, handlers, reset } = useZoomPan({
@@ -37,11 +38,11 @@ export default function ImageDetector({ src, onConfirm }: Props) {
     if (!img) return
 
     if (img.complete && img.naturalWidth > 0) {
-      void detect(img)
+      void detect(img, file)
       return
     }
 
-    const onLoad = () => void detect(img)
+    const onLoad = () => void detect(img, file)
     img.addEventListener('load', onLoad)
     return () => img.removeEventListener('load', onLoad)
   }, [src, detect])
@@ -115,7 +116,7 @@ export default function ImageDetector({ src, onConfirm }: Props) {
               : 'Tap a box to select — drag to move, drag handles to resize, × to delete.'}
           </p>
           <button
-            onClick={() => onConfirm(detections)}
+            onClick={() => onConfirm(detections, imageId ?? '', suggestions)}
             disabled={detections.length === 0}
             style={{
               padding: '0.35rem 0.9rem',

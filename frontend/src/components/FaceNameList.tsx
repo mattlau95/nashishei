@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Detection } from '../types/detection'
+import type { Detection, Suggestion } from '../types/detection'
 
 type Props = {
   file: File
   imgSrc: string
   detections: Detection[]
+  imageId?: string
+  suggestions?: Suggestion[]
 }
 
 type SavedDetection = { id: string; bbox_x: number; bbox_y: number; bbox_w: number; bbox_h: number; source: string }
@@ -15,22 +17,25 @@ function sortedDetections(dets: Detection[]): Detection[] {
   return [...dets].sort((a, b) => a.bbox_y - b.bbox_y || a.bbox_x - b.bbox_x)
 }
 
-export default function FaceNameList({ file, imgSrc, detections }: Props) {
+export default function FaceNameList({ file, imgSrc, detections, imageId, suggestions = [] }: Props) {
   const sorted = sortedDetections(detections)
   const [crops, setCrops] = useState<Record<string, string>>({})
   const [names, setNames] = useState<Record<string, string>>(() =>
     Object.fromEntries(detections.map((d) => [d.id, ''])),
   )
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [bulkOpen, setBulkOpen] = useState(false)
   const [bulkInput, setBulkInput] = useState('')
   const [done, setDone] = useState(false)
-  const [savedImageId, setSavedImageId] = useState<string | null>(null)
+  const [savedImageId, setSavedImageId] = useState<string | null>(imageId ?? null)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
   const [sharing, setSharing] = useState(false)
   const [copied, setCopied] = useState(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
+
+  const suggestionMap = Object.fromEntries(suggestions.map((s) => [s.detection_id, s]))
 
   // Extract face crops from the image using canvas
   useEffect(() => {
@@ -92,36 +97,52 @@ export default function FaceNameList({ file, imgSrc, detections }: Props) {
     setSaving(true)
     setError(null)
     try {
-      // 1. Upload image
-      const formData = new FormData()
-      formData.append('image', file)
-      const imgRes = await fetch('/api/images', { method: 'POST', body: formData, credentials: 'include' })
-      if (imgRes.status === 401) throw new Error('Not logged in — please sign in to save.')
-      if (!imgRes.ok) throw new Error(`Image upload failed (${imgRes.status})`)
-      const imgData = (await imgRes.json()) as { id: string }
-      const imageId = imgData.id
+      let resolvedImageId: string
+      let savedDets: SavedDetection[]
 
-      // 2. Save all detections in one batch
-      const batchRes = await fetch('/api/detections/batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          image_id: imageId,
-          detections: sorted.map((d) => ({
-            bbox_x: d.bbox_x,
-            bbox_y: d.bbox_y,
-            bbox_w: d.bbox_w,
-            bbox_h: d.bbox_h,
-            source: d.source,
-          })),
-        }),
-      })
-      if (!batchRes.ok) throw new Error(`Failed to save detections (${batchRes.status})`)
-      const batchData = (await batchRes.json()) as { detections: SavedDetection[] }
-      const savedDets = batchData.detections
+      if (imageId) {
+        // Image already uploaded and detections already persisted by the detect hook.
+        // Server-assigned detection IDs are already in `sorted`.
+        resolvedImageId = imageId
+        savedDets = sorted.map((d) => ({
+          id: d.id,
+          bbox_x: d.bbox_x,
+          bbox_y: d.bbox_y,
+          bbox_w: d.bbox_w,
+          bbox_h: d.bbox_h,
+          source: d.source,
+        }))
+      } else {
+        // Legacy path: upload image then batch-save detections.
+        const formData = new FormData()
+        formData.append('image', file)
+        const imgRes = await fetch('/api/images', { method: 'POST', body: formData, credentials: 'include' })
+        if (imgRes.status === 401) throw new Error('Not logged in — please sign in to save.')
+        if (!imgRes.ok) throw new Error(`Image upload failed (${imgRes.status})`)
+        const imgData = (await imgRes.json()) as { id: string }
+        resolvedImageId = imgData.id
 
-      // 3. For each named face: create person + tag
+        const batchRes = await fetch('/api/detections/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            image_id: resolvedImageId,
+            detections: sorted.map((d) => ({
+              bbox_x: d.bbox_x,
+              bbox_y: d.bbox_y,
+              bbox_w: d.bbox_w,
+              bbox_h: d.bbox_h,
+              source: d.source,
+            })),
+          }),
+        })
+        if (!batchRes.ok) throw new Error(`Failed to save detections (${batchRes.status})`)
+        const batchData = (await batchRes.json()) as { detections: SavedDetection[] }
+        savedDets = batchData.detections
+      }
+
+      // For each named face: create person + tag
       for (let i = 0; i < sorted.length; i++) {
         const name = names[sorted[i].id]?.trim()
         if (!name) continue
@@ -146,7 +167,7 @@ export default function FaceNameList({ file, imgSrc, detections }: Props) {
         if (!tagRes.ok) throw new Error(`Failed to tag "${name}" (${tagRes.status})`)
       }
 
-      setSavedImageId(imageId)
+      setSavedImageId(resolvedImageId)
       setDone(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -377,23 +398,64 @@ export default function FaceNameList({ file, imgSrc, detections }: Props) {
                 )}
               </div>
 
-              {/* Name input — focus ring handled by index.css input:focus-visible rule */}
-              <input
-                ref={(el) => { inputRefs.current[idx] = el }}
-                type="text"
-                placeholder="Name"
-                value={names[det.id] ?? ''}
-                onChange={(e) => setNames((prev) => ({ ...prev, [det.id]: e.target.value }))}
-                onKeyDown={(e) => handleKeyDown(e, idx)}
-                style={{
-                  flex: 1,
-                  padding: 'var(--space-2) var(--space-2)',
-                  fontSize: 'var(--text-base)',
-                  border: '1px solid #ccc',
-                  borderRadius: 'var(--radius-sm)',
-                  minWidth: 0,
-                }}
-              />
+              {/* Name input + suggestion chip */}
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                <input
+                  ref={(el) => { inputRefs.current[idx] = el }}
+                  type="text"
+                  placeholder="Name"
+                  value={names[det.id] ?? ''}
+                  onChange={(e) => setNames((prev) => ({ ...prev, [det.id]: e.target.value }))}
+                  onKeyDown={(e) => handleKeyDown(e, idx)}
+                  style={{
+                    width: '100%',
+                    padding: 'var(--space-2) var(--space-2)',
+                    fontSize: 'var(--text-base)',
+                    border: '1px solid #ccc',
+                    borderRadius: 'var(--radius-sm)',
+                    boxSizing: 'border-box',
+                  }}
+                />
+                {(() => {
+                  const suggestion = suggestionMap[det.id]
+                  if (!suggestion || dismissed.has(det.id) || names[det.id]?.trim()) return null
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                        Suggested:
+                      </span>
+                      <button
+                        onClick={() => setNames((prev) => ({ ...prev, [det.id]: suggestion.display_name }))}
+                        style={{
+                          padding: '2px 8px',
+                          background: 'var(--color-accent-tint)',
+                          border: '1px solid var(--color-accent-tint-border)',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: 'pointer',
+                          fontSize: 'var(--text-sm)',
+                          fontStyle: 'italic',
+                        }}
+                      >
+                        ✓ {suggestion.display_name}
+                      </button>
+                      <button
+                        onClick={() => setDismissed((prev) => new Set([...prev, det.id]))}
+                        style={{
+                          padding: '2px 6px',
+                          background: 'transparent',
+                          border: '1px solid #ccc',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: 'pointer',
+                          fontSize: 'var(--text-sm)',
+                          color: 'var(--color-text-muted)',
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )
+                })()}
+              </div>
             </div>
           )
         })}

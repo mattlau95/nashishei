@@ -4,5 +4,11 @@ export type Detection = {
   bbox_y: number // normalized 0..1 from top edge
   bbox_w: number // normalized width
   bbox_h: number // normalized height
-  source: 'auto' | 'manual'
+  source: 'auto' | 'manual' | 'server'
+}
+
+export type Suggestion = {
+  detection_id: string
+  person_id: string
+  display_name: string
 }
