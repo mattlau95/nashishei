@@ -17,6 +17,50 @@
 ---
 ## History (Log Entries start here)
 
+## 2026-06-25 - End-to-end debugging: face detection, share link, auth UI, label layout
+
+**Session Goal:** Get the Phase 2 stack working end-to-end — ML detects all faces, share link opens the viewer, show-all labels connect correctly.
+**Status:** Completed ✅
+
+### The "Why" (Decision Log)
+
+* **`g++` added to ML Dockerfile apt install:** `insightface==0.7.3` includes a Cython C++ extension (`mesh_core_cython`). `python:3.12-slim` ships no C++ compiler. Without `g++` the pip install fails at the compile step — no workaround, just a missing build dep.
+
+* **`det_size=(1280, 1280)` at startup over `(640, 640)` default:** InsightFace's detection model downscales input to `det_size` before running inference. At `(640, 640)`, faces in a 4032×3024 group photo are too small to detect — the downscale ratio pushes faces below the minimum detectable size. Setting a larger size at singleton initialization time captures all faces at the cost of slower inference. Per-request `prepare()` calls were also tried but are silently ignored by InsightFace once `det_size` is already set.
+
+* **`face_app.models['detection'].input_size` direct attribute override for per-request sizing over re-initializing the singleton:** InsightFace's `FaceAnalysis.prepare()` ignores repeated calls with a different `det_size` ("det_size is already set in detection model, ignore"). Directly writing to the SCRFD model's `input_size` attribute bypasses this guard. This lets each request scale to the actual image dimensions (capped at 1920×1920, rounded to 32px) without recreating the model.
+
+* **`ImageOps.exif_transpose()` before detection (ML) and `imaging.AutoOrientation(true)` before thumbnail generation (API):** Phone photos are physically stored sideways (4032×3024) with an EXIF rotation tag saying "display this as 3024×4032." Without applying the EXIF tag, InsightFace sees a landscape image and returns bboxes in the wrong coordinate space; the API stores the wrong dimensions and generates a sideways thumbnail. Both fixes must be applied together — fixing one without the other misaligns bboxes against the thumbnail.
+
+* **`FRONTEND_URL` config split from `BASE_URL`:** In dev, the API runs on `:8080` and Vite on `:5173`. Share URLs must point to Vite (where React Router handles `/s/:token`). `BASE_URL` is still needed for file-serving URLs (the `/files/` route is on the API). Splitting into two config values lets them differ in dev and converge in prod (where a reverse proxy puts both under the same origin). The OG page redirect and `GenerateShareToken` both use `FRONTEND_URL`.
+
+* **`AuthGate` + `AuthPage` over redirecting to a dedicated `/login` route:** The app has one protected route (`/`). `AuthGate` wraps it in-place — if not authed, renders `AuthPage` instead of `<Home />`, then replaces itself once the cookie is set. No router navigation, no flash of the home page, no `location.state` to thread through. A `/login` route would be correct for an app with many protected routes; for one it's unnecessary machinery.
+
+* **`useLayoutEffect` + `offsetWidth` measurement for `lineX2` over a fixed `CHAR_W` estimate:** `estWidth = name.length * CHAR_W` can only approximate actual rendered text width — font metrics, padding, and the image container's pixel width all interact. After `resolveCollisions` shifts labels horizontally, the estimated center `labelLeft + estWidth/2` consistently lands to the right of the actual label pill. Measuring `el.offsetWidth` after the first paint gives the exact width for every label; `setMeasuredX2` triggers a second (SVG-only) render with correct `x2` values.
+
+* **CSS `bottom` anchor for above-face labels over `top` + fixed `LABEL_H` offset:** The line endpoint is at `bbox_y - LINE_GAP` (a Y position the SVG can draw to exactly). For the label to visually connect, its bottom edge must sit at that same Y. Using `top: labelTopY%` requires knowing the label's pixel height in normalized coordinates — a constant (`LABEL_H`) that was 0.06 but actual rendered height was ~0.03–0.04, leaving a visible gap. `bottom: (1 - lineAnchorY) * 100%` pins the div's bottom edge directly to the line endpoint regardless of actual font rendering height.
+
+* **`labelHitsFace()` flip check over a fixed above/below rule:** The `ABOVE_THRESHOLD = 0.25` rule works for most faces but fails when two faces are vertically close — the "above" label for the lower face lands on the upper face. A pre-placement check against all other face bboxes (using `LABEL_H_EST` for the label height estimate) catches this case and flips to the other side. When both sides hit a face, the threshold-side preference is kept — this is the least-bad option and rare in practice.
+
+* **`main.py` volume-mounted in docker-compose over rebuilding the ML image on every code change:** The ML Docker image takes several minutes to build (installs insightface, bakes the 500MB buffalo_l weights). Volume-mounting `ml/main.py` into the running container means Python code changes take effect after a `docker compose restart ml` (~5 seconds) with no rebuild. Caveat: a clean `docker compose build ml` bakes the weights-only image; the mount overlays `main.py` at runtime.
+
+### Technical Notes
+
+* InsightFace singleton `det_size` is set to `(1280, 1280)` at startup. Per-request, `face_app.models['detection'].input_size` is overwritten to the actual image dimensions (rounded to nearest 32, capped at 1920). The startup size is effectively a no-op after the first request but is kept as a valid initial state.
+* `image.Decode` + blank `_ "image/jpeg"` / `_ "image/png"` imports removed from `images.go`; replaced by `imaging.Decode(..., imaging.AutoOrientation(true))` which registers and handles JPEG/PNG internally. Any existing images already stored sideways are not retroactively fixed — re-uploading is required.
+* Docker Desktop WSL2 bridge causes the Go API (running on Windows host) to appear as the bridge gateway IP inside the Postgres container, missing the `trust` pg_hba rule and hitting `scram-sha-256`. Fixed by running the API inside Docker on the same compose network as `db`, using the `db` service hostname.
+* `golang:1.23-alpine` was too old for `go.mod`'s `go 1.26.3` directive; switched to `golang:1.26-alpine` in `Dockerfile.dev`.
+* `localStorage.getItem('authed') === '1'` used as auth-state flag — HttpOnly cookies aren't readable from JS, so there's no other way for the frontend to know if a valid session exists without a round-trip to `/api/auth/me`.
+* Debug `print()` statements left in `ml/main.py` (face count, bbox, det_score per detection) — useful for ongoing tuning, low cost.
+
+### Next Session
+
+* Consider cleaning up `ml/main.py` debug prints once detection quality is confirmed
+* Investigate label collision resolution on portrait photos where faces are vertically stacked (not just horizontally)
+* Phase 2 remaining: verify show-all layout against a 10+ face photo
+
+---
+
 ## 2026-06-23 - Phase 0 scaffold + Postgres wiring
 **Session Goal:** Get the full project skeleton standing and the database connected to the API.
 **Status:** Partially Completed (MAT-468 ✅, MAT-469 ✅ — MAT-470/471/472/473 in progress)
