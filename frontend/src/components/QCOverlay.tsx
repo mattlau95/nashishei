@@ -56,9 +56,10 @@ type Props = {
   detections: Detection[]
   setDetections: React.Dispatch<React.SetStateAction<Detection[]>>
   addMode: boolean
+  scale?: number
 }
 
-export default function QCOverlay({ detections, setDetections, addMode }: Props) {
+export default function QCOverlay({ detections, setDetections, addMode, scale = 1 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const drag = useRef<DragRef | null>(null)
@@ -97,9 +98,9 @@ export default function QCOverlay({ detections, setDetections, addMode }: Props)
   }
 
   // ── background ────────────────────────────────────────────────────────────
-  function onContainerDown(e: React.PointerEvent<HTMLDivElement>) {
-    containerRef.current?.setPointerCapture(e.pointerId)
-    // drag.current stays null — intent resolved in onContainerUp
+  function onContainerDown(_e: React.PointerEvent<HTMLDivElement>) {
+    // No pointer capture here — background touches must bubble to the zoom wrapper.
+    // Capture only happens in onBoxDown/onHandleDown where a drag is definite.
   }
 
   // ── move: mutate DOM directly, no React re-render during drag ─────────────
@@ -307,6 +308,8 @@ export default function QCOverlay({ detections, setDetections, addMode }: Props)
                     fontSize: 'var(--text-sm)',
                     lineHeight: '28px',
                     textAlign: 'center',
+                    transform: `scale(${1 / scale})`,
+                    transformOrigin: 'center',
                   }}
                   onPointerDown={(e) => {
                     e.stopPropagation()
@@ -317,8 +320,11 @@ export default function QCOverlay({ detections, setDetections, addMode }: Props)
                   ×
                 </button>
 
-                {/* 7 resize handles — var(--tap-target) touch targets */}
-                {HANDLES.map((h) => (
+                {/* 7 resize handles — var(--tap-target) touch targets, counter-scaled to stay fixed screen size */}
+                {HANDLES.map((h) => {
+                  const existing = (h.style.transform as string) ?? ''
+                  const scaleT = `scale(${1 / scale})`
+                  return (
                   <div
                     key={h.id}
                     style={{
@@ -328,7 +334,9 @@ export default function QCOverlay({ detections, setDetections, addMode }: Props)
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
+                      transformOrigin: 'center',
                       ...h.style,
+                      transform: existing ? `${existing} ${scaleT}` : scaleT,
                     }}
                     onPointerDown={(e) => onHandleDown(e, det, h.id)}
                   >
@@ -342,7 +350,8 @@ export default function QCOverlay({ detections, setDetections, addMode }: Props)
                       }}
                     />
                   </div>
-                ))}
+                  )
+                })}
               </>
             )}
           </div>

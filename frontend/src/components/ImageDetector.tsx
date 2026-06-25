@@ -1,7 +1,9 @@
 import { useRef, useEffect, useState } from 'react'
 import QCOverlay from './QCOverlay'
 import { useFaceDetection } from '../hooks/useFaceDetection'
+import { useZoomPan } from '../hooks/useZoomPan'
 import type { Detection } from '../types/detection'
+import './ImageDetector.css'
 
 type Props = {
   src: string
@@ -21,8 +23,14 @@ const ADD_BTN_STYLE = (addMode: boolean): React.CSSProperties => ({
 
 export default function ImageDetector({ src, onConfirm }: Props) {
   const imgRef = useRef<HTMLImageElement>(null)
+  const viewportRef = useRef<HTMLDivElement>(null)
   const { detections, setDetections, detect, detecting, error } = useFaceDetection()
   const [addMode, setAddMode] = useState(false)
+
+  const { scale: zoomScale, transformStyle, handlers, reset } = useZoomPan({
+    containerRef: viewportRef,
+    disabled: addMode,
+  })
 
   useEffect(() => {
     const img = imgRef.current
@@ -38,77 +46,67 @@ export default function ImageDetector({ src, onConfirm }: Props) {
     return () => img.removeEventListener('load', onLoad)
   }, [src, detect])
 
+  // Reset zoom whenever a new image is loaded
+  useEffect(() => { reset() }, [src, reset])
+
   return (
-    <div>
-      <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
-        <img
-          ref={imgRef}
-          src={src}
-          alt="Group photo for labelling"
-          style={{ display: 'block', width: '100%', height: 'auto' }}
-        />
-        {detecting && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'var(--color-scrim)',
-              color: '#fff',
-              fontSize: 'var(--text-base)',
-              letterSpacing: '0.02em',
-            }}
-          >
-            Detecting faces…
-          </div>
-        )}
-        {error && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: 0,
-              left: 0,
-              right: 0,
-              padding: 'var(--space-2) var(--space-3)',
-              background: 'var(--color-overlay-label)',
-              color: 'var(--color-error)',
-              fontSize: 'var(--text-sm)',
-            }}
-          >
-            Detection error: {error}
-          </div>
-        )}
-        <QCOverlay
-          detections={detections}
-          setDetections={setDetections}
-          addMode={addMode}
-        />
-        {/* Floating add button anchored to top of image — visible without scrolling on tall portrait photos */}
-        {!detecting && (
-          <button
-            onClick={() => setAddMode((v) => !v)}
-            style={{
-              position: 'absolute',
-              top: 'var(--space-2)',
-              left: 'var(--space-2)',
-              zIndex: 20,
-              ...ADD_BTN_STYLE(addMode),
-            }}
-          >
-            {addMode ? 'Cancel' : '+ Add face'}
-          </button>
-        )}
+    <div className="qc-layout">
+      <div className="qc-viewport" ref={viewportRef}>
+        <div
+          style={{ position: 'relative', display: 'inline-block', width: '100%', ...transformStyle }}
+          {...handlers}
+        >
+          <img
+            ref={imgRef}
+            src={src}
+            alt="Group photo for labelling"
+            style={{ display: 'block', width: '100%', height: 'auto' }}
+          />
+          {detecting && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--color-scrim)',
+                color: '#fff',
+                fontSize: 'var(--text-base)',
+                letterSpacing: '0.02em',
+              }}
+            >
+              Detecting faces…
+            </div>
+          )}
+          {error && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                padding: 'var(--space-2) var(--space-3)',
+                background: 'var(--color-overlay-label)',
+                color: 'var(--color-error)',
+                fontSize: 'var(--text-sm)',
+              }}
+            >
+              Detection error: {error}
+            </div>
+          )}
+          <QCOverlay
+            detections={detections}
+            setDetections={setDetections}
+            addMode={addMode}
+            scale={zoomScale}
+          />
+        </div>
       </div>
 
       {!detecting && (
-        <div style={{ marginTop: 'var(--space-2)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-          {/* Duplicate add button below the image — matches the one above */}
-          <button
-            onClick={() => setAddMode((v) => !v)}
-            style={ADD_BTN_STYLE(addMode)}
-          >
+        <div className="qc-sticky-bar">
+          <button onClick={() => setAddMode((v) => !v)} style={ADD_BTN_STYLE(addMode)}>
             {addMode ? 'Cancel' : '+ Add face'}
           </button>
           <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', flex: 1 }}>
