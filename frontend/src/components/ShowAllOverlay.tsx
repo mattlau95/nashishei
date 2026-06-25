@@ -61,6 +61,27 @@ function resolveCollisions(labels: PlacedLabel[]): void {
   }
 }
 
+function getLabelYRange(p: PlacedLabel): [number, number] {
+  return p.above
+    ? [p.lineAnchorY - LABEL_H_EST, p.lineAnchorY]
+    : [p.lineAnchorY, p.lineAnchorY + LABEL_H_EST]
+}
+
+function labelsOverlap2D(a: PlacedLabel, b: PlacedLabel): boolean {
+  if (a.labelLeft + a.estWidth <= b.labelLeft || b.labelLeft + b.estWidth <= a.labelLeft) return false
+  const [aY1, aY2] = getLabelYRange(a)
+  const [bY1, bY2] = getLabelYRange(b)
+  return aY1 < bY2 && bY1 < aY2
+}
+
+function applyFlip(label: PlacedLabel, toAbove: boolean): void {
+  label.above = toAbove
+  const anchorY = toAbove ? label.bbox_y - LINE_GAP : label.bbox_y + label.bbox_h + LINE_GAP
+  label.lineAnchorY = anchorY
+  label.lineY1 = toAbove ? label.bbox_y : label.bbox_y + label.bbox_h
+  label.lineY2 = anchorY
+}
+
 function labelHitsFace(
   labelLeft: number, estWidth: number, anchorY: number, above: boolean, faces: Label[], ownId: string
 ): boolean {
@@ -101,8 +122,33 @@ function computeLayout(labels: Label[]): PlacedLabel[] {
     return { ...l, above, estWidth, labelLeft, lineAnchorY, lineX1, lineY1, lineX2, lineY2 }
   })
 
-  const aboveGroup = placed.filter((p) => p.above)
-  const belowGroup = placed.filter((p) => !p.above)
+  let aboveGroup = placed.filter((p) => p.above)
+  let belowGroup = placed.filter((p) => !p.above)
+  resolveCollisions(aboveGroup)
+  resolveCollisions(belowGroup)
+
+  // Cross-group pass: a "below" label and an "above" label from adjacent vertically-stacked
+  // faces can overlap even after horizontal nudging because resolveCollisions only operates
+  // within each group. Try to flip the offending label to the other side of its face.
+  for (const a of aboveGroup) {
+    for (const b of belowGroup) {
+      if (!labelsOverlap2D(a, b)) continue
+      // Try flipping b (below→above its face)
+      if (!labelHitsFace(b.labelLeft, b.estWidth, b.bbox_y - LINE_GAP, true, labels, b.detection_id)) {
+        applyFlip(b, true)
+        continue
+      }
+      // Try flipping a (above→below its face)
+      if (!labelHitsFace(a.labelLeft, a.estWidth, a.bbox_y + a.bbox_h + LINE_GAP, false, labels, a.detection_id)) {
+        applyFlip(a, false)
+        break
+      }
+    }
+  }
+
+  // Re-group and re-resolve horizontal collisions after any flips
+  aboveGroup = placed.filter((p) => p.above)
+  belowGroup = placed.filter((p) => !p.above)
   resolveCollisions(aboveGroup)
   resolveCollisions(belowGroup)
 

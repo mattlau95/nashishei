@@ -41,10 +41,6 @@ async def detect_and_embed(image: UploadFile = File(...)):
     face_app.models['detection'].input_size = (det_w, det_h)
     faces = face_app.get(img_array)
 
-    print(f"image {img_w}x{img_h} det_size=({det_w},{det_h}) found {len(faces)} face(s)", flush=True)
-    for i, f in enumerate(faces):
-        print(f"  face {i}: bbox={f.bbox.tolist()} det_score={getattr(f, 'det_score', '?')}", flush=True)
-
     result = []
     for face in faces:
         x1, y1, x2, y2 = face.bbox
