@@ -178,3 +178,28 @@
 * MAT-481 — Sticky add mode + portrait button placement — P2
 
 ---
+
+## 2026-06-24 - Share UI + bbox_y threshold validation (MAT-477 patch, MAT-490)
+**Session Goal:** Close out the remaining MAT-477 gaps (share link was undeliverable to users) and validate the label placement threshold from MAT-490.
+**Status:** Completed ✅ — MAT-477 closed, MAT-490 closed.
+
+### The "Why" (Decision Log)
+* **Share UI lives in `FaceNameList`'s done state, not a new page:** After saving, the user is already in context — they've just named everyone and the natural next question is "now what?" A `Share photo` button inline in the done state answers that without navigation. A separate Share page would require keeping the image ID in router state or a URL param.
+* **"Share photo" button → link reveal (two steps) over a link shown immediately on save:** The share token API call is a side-effectful write (generates a new token on each call). Requiring an explicit user action to trigger it makes the intent clear and avoids generating tokens the user didn't ask for.
+* **Share URL fixed from `/share/` to `/s/`:** The frontend route was always `/s/:token`, but `share.go` generated `BASE_URL + "/share/" + token`. Every share link produced before this fix would 404. The API route itself (`GET /share/{token}`) is unaffected — that's a backend path, not a page URL. Origin of the mismatch is unknown; caught and fixed this session.
+* **`ABOVE_THRESHOLD = 0.25` kept as-is over lowering to the geometric minimum (~0.08):** Analytically, a label (~30px, ~7% of a 400px image) above a face with `bbox_y = 0.08` fits without clipping. But keeping 0.25 means top-row faces in group photos always get a "below" label — which reads naturally (label points down toward the rest of the group). The extra conservatism is a UX benefit, not just a safety margin.
+* **Named constant over inline magic number:** `0.25` appears in both `Viewer.tsx` and `ShowAllOverlay.tsx` with no explanation. The threshold has a non-obvious WHY (geometry + UX intent), which is exactly the case for a named constant + comment. One line to change if the threshold is ever tuned.
+
+### Technical Notes
+* `share.go` line 48: `cfg.BaseURL + "/share/" + token` → `cfg.BaseURL + "/s/" + token`. One-line fix.
+* `FaceNameList.tsx`: added `savedImageId`, `shareUrl`, `sharing`, `copied` state. `handleShare()` calls `POST /api/images/{id}/share`; `handleCopy()` writes to `navigator.clipboard` and shows a 2-second "Copied!" flash.
+* Threshold extracted to `const ABOVE_THRESHOLD = 0.25` in both `Viewer.tsx` (after `HIT_PAD`) and `ShowAllOverlay.tsx` (with the other normalized-coordinate constants). Both files updated to reference the constant.
+* `tsc --noEmit` passes clean after both changes.
+
+### Next Session
+* MAT-479 — T6: Hardening pass (accessibility, token retrofit on T1–T3, error states)
+* MAT-480 — Keyboard shortcuts for QC overlay — P2
+* MAT-481 — Sticky add mode + portrait button placement — P2
+* Phase 1.5 planning — server-side detection persistence, no-account viewer naming, OG preview card
+
+---

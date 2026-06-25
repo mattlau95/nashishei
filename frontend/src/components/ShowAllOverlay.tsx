@@ -17,6 +17,9 @@ const NUDGE_GAP = 0.008
 // Chinese chars are wider per glyph so we use a slightly higher value.
 const CHAR_W = 0.024
 const LABEL_PAD = 0.06
+// Faces below this Y go above; faces above it (top 25%) go below.
+// Minimum safe value is ~0.075 (LABEL_H + LINE_GAP); 0.25 gives comfortable margin.
+const ABOVE_THRESHOLD = 0.25
 
 type PlacedLabel = Label & {
   above: boolean
@@ -31,7 +34,7 @@ type PlacedLabel = Label & {
 
 function computeLayout(labels: Label[]): PlacedLabel[] {
   const placed: PlacedLabel[] = labels.map((l) => {
-    const above = l.bbox_y >= 0.25
+    const above = l.bbox_y >= ABOVE_THRESHOLD
     const estWidth = Math.max(l.display_name.length * CHAR_W + LABEL_PAD, 0.1)
     const centerX = l.bbox_x + l.bbox_w / 2
     const labelLeft = Math.min(Math.max(centerX - estWidth / 2, 0), 1 - estWidth)

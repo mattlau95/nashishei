@@ -24,6 +24,10 @@ export default function FaceNameList({ file, imgSrc, detections }: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
+  const [savedImageId, setSavedImageId] = useState<string | null>(null)
+  const [shareUrl, setShareUrl] = useState<string | null>(null)
+  const [sharing, setSharing] = useState(false)
+  const [copied, setCopied] = useState(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
   // Extract face crops from the image using canvas
@@ -120,6 +124,7 @@ export default function FaceNameList({ file, imgSrc, detections }: Props) {
         if (!tagRes.ok) throw new Error(`Failed to tag "${name}" (${tagRes.status})`)
       }
 
+      setSavedImageId(imageId)
       setDone(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -128,13 +133,99 @@ export default function FaceNameList({ file, imgSrc, detections }: Props) {
     }
   }
 
+  async function handleShare() {
+    if (!savedImageId) return
+    setSharing(true)
+    try {
+      const res = await fetch(`/api/images/${savedImageId}/share`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (!res.ok) throw new Error()
+      const data = (await res.json()) as { share_url: string }
+      setShareUrl(data.share_url)
+    } catch {
+      setError('Could not generate share link.')
+    } finally {
+      setSharing(false)
+    }
+  }
+
+  async function handleCopy() {
+    if (!shareUrl) return
+    await navigator.clipboard.writeText(shareUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   if (done) {
     return (
       <div style={{ padding: 'var(--space-6) 0', textAlign: 'center' }}>
         <p style={{ fontSize: 'var(--text-lg)', marginBottom: 'var(--space-2)' }}>Saved!</p>
-        <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)' }}>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: 'var(--space-5)' }}>
           {namedCount} of {sorted.length} faces named.
         </p>
+
+        {!shareUrl ? (
+          <button
+            onClick={() => void handleShare()}
+            disabled={sharing}
+            style={{
+              padding: 'var(--space-2) var(--space-5)',
+              background: sharing ? '#aaa' : '#333',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '9999px',
+              cursor: sharing ? 'not-allowed' : 'pointer',
+              fontSize: 'var(--text-base)',
+              fontWeight: 600,
+            }}
+          >
+            {sharing ? 'Generating link…' : 'Share photo'}
+          </button>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
+              Anyone with this link can tap faces to see names.
+            </p>
+            <div style={{ display: 'flex', gap: 'var(--space-2)', width: '100%', maxWidth: 360 }}>
+              <input
+                readOnly
+                value={shareUrl}
+                style={{
+                  flex: 1,
+                  padding: 'var(--space-2)',
+                  fontSize: 'var(--text-sm)',
+                  border: '1px solid #ccc',
+                  borderRadius: 'var(--radius-sm)',
+                  minWidth: 0,
+                  background: 'var(--color-surface)',
+                }}
+              />
+              <button
+                onClick={() => void handleCopy()}
+                style={{
+                  padding: 'var(--space-2) var(--space-3)',
+                  background: copied ? '#4caf50' : '#333',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  fontSize: 'var(--text-sm)',
+                  fontWeight: 600,
+                  flexShrink: 0,
+                  transition: 'background 0.15s',
+                }}
+              >
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: 'var(--space-3)' }}>{error}</p>
+        )}
       </div>
     )
   }

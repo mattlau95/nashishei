@@ -20,9 +20,12 @@ type SharedImage = {
 }
 
 const HIT_PAD = 8
+// Faces below this Y get labels above; faces above it (top 25%) get labels below.
+// Minimum safe value is ~0.085 (label height / image height); 0.25 gives comfortable margin.
+const ABOVE_THRESHOLD = 0.25
 
 function NameLabel({ label }: { label: SharedLabel }) {
-  const above = label.bbox_y >= 0.25
+  const above = label.bbox_y >= ABOVE_THRESHOLD
   const centerX = (label.bbox_x + label.bbox_w / 2) * 100
 
   return (
