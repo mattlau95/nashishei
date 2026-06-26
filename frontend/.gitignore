@@ -15,6 +15,10 @@ dist-ssr
 # MediaPipe WASM files (copied from node_modules at install time)
 public/mediapipe-wasm/
 
+# Tauri build artifacts
+src-tauri/target/
+src-tauri/gen/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

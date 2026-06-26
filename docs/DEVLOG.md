@@ -324,3 +324,42 @@
 * Consider lowering `SHOW_ALL_MAX` below 12 after real-photo density testing
 
 ---
+
+## 2026-06-26 — Tauri desktop shell (Step 1)
+
+**Session Goal:** Scaffold the Tauri desktop app for authoring — Tauri v2 wrapping the existing React/Vite frontend, CORS configured for the desktop WebView origin, verified login works in the Tauri window.
+**Status:** Partially Completed — Tauri window opens and login works ✅; ML sidecar bundling (Step 2) not yet done.
+
+### The "Why" (Decision Log)
+
+* **Tauri desktop app over local Go binary serving the frontend:** The viewing use case can't require installation — elderly congregation members receive a share link and must open it in a plain browser. Authoring needs to run a local ML sidecar (InsightFace/ArcFace) without paying for cloud RAM. A Tauri desktop app lets authoring use local RAM while the viewer stays a web page. Embedding the frontend in a Go binary would have collapsed both clients into one and made the viewer require installation.
+
+* **Cloud Postgres + pgvector stays over SQLite:** Embedding generation is expensive (moves to local sidecar); pgvector similarity search is cheap (stays in cloud). SQLite on each user's machine would also lose cross-device data and break the share-link viewer flow, which reads from the same Postgres rows the author wrote.
+
+* **ML sidecar runs locally over staying in the cloud:** Not ready to pay for a hosting service with enough RAM for InsightFace/ArcFace. Running the sidecar on the author's machine costs nothing.
+
+* **MSVC toolchain over MinGW/GNU for Windows Tauri builds:** Tauri's `cdylib` crate generates 95,263 exported symbols — PE/COFF DLLs cap at 65,535, which both GNU `ld` and LLVM `lld` enforce. MSVC's `link.exe` doesn't impose this limit. The GNU toolchain was attempted first (MSYS2 + MinGW GCC 16 + LLD 22) and hit the same wall. VS 2022 Build Tools installed via winget as admin unblocked the build.
+
+* **Vite proxy for API calls in dev over `VITE_API_BASE` env var:** In `tauri dev`, the WebView loads from the Vite dev server (`http://localhost:5173`), so Vite's existing `/api/` → `localhost:8080` proxy handles all API calls — no change to any fetch URL. The env-var approach is still needed for production builds (where there's no Vite proxy), but the MVP dev workflow doesn't require it yet.
+
+* **CORS middleware on the Go API over per-handler headers:** `tauri://localhost` is the WebView2 origin for production Tauri builds; dev builds go through Vite so CORS isn't an issue there. Adding a router-level middleware means future routes are covered automatically and the allowed-origins list is a single maintained map.
+
+### Technical Notes
+
+* Tauri v2.11.3 scaffolded at `frontend/src-tauri/`. Bundle identifier `au.nashishei.app`. Window 430×932 (iPhone 14 Pro portrait). `tauri-plugin-shell` added to `Cargo.toml` and registered in `lib.rs` — needed later to spawn the ML sidecar.
+* `frontend/package.json` gets `@tauri-apps/cli` (devDep) and `@tauri-apps/api` (dep) + `"tauri": "tauri"` script.
+* `frontend/.gitignore` excludes `src-tauri/target/` and `src-tauri/gen/`.
+* `vite.config.ts` adds `strictPort: true` — prevents silent port switching to 5174 when 5173 is held by a stale process (which caused a window-loads-blank failure in the first dev run).
+* CORS middleware (`corsMiddleware`) added to `api/cmd/api/main.go` as a router-level `Use` — allows `tauri://localhost`, `https://tauri.localhost`, and both dev ports (5173, 5174) plus `cfg.FrontendURL`.
+* Makefile gains `tauri-dev`, `tauri-build-mac` (universal Apple), `tauri-build-windows` (x86_64-msvc).
+* First Rust build: ~2 min 8 sec (374 crates from scratch, MSVC). Subsequent builds use incremental cache.
+* MAT-512 created in Linear (P2 / Deep Work): face detection loading animation (Detecting Faces.dc.html). INBOX.md cleared.
+* Rust 1.96.0 installed via rustup; VS 2022 Build Tools installed as admin; `stable-x86_64-pc-windows-msvc` is the active default toolchain.
+
+### Next Session
+
+* Step 2: Bundle ML sidecar — PyInstaller freeze of `ml/main.py`, configure as `bundle.externalBin`, Rust `setup()` spawns it on startup
+* Production API URL: add `VITE_API_BASE` env var for prod builds (Vite proxy won't exist in the bundled app)
+* Test upload + detect flow end-to-end in the Tauri window
+
+---
