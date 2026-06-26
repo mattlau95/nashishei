@@ -15,7 +15,6 @@ const CHAR_W = 0.016
 const LABEL_PAD = 0.04
 const LABEL_H_EST = 0.06
 const SHELF_H = LABEL_H_EST + NUDGE_GAP
-const ROW_TOLERANCE = 0.12
 
 type PlacedLabel = Label & {
   above: boolean
@@ -26,44 +25,6 @@ type PlacedLabel = Label & {
   lineY1: number
   lineX2: number
   lineY2: number
-}
-
-type FaceRow = {
-  faces: Label[]
-  top: number
-  bottom: number
-  left: number
-  right: number
-}
-
-// Group faces into horizontal rows by Y proximity.
-function clusterRows(faces: Label[]): FaceRow[] {
-  const sorted = [...faces].sort((a, b) => a.bbox_y - b.bbox_y)
-  const rows: Label[][] = [[sorted[0]]]
-  for (let i = 1; i < sorted.length; i++) {
-    const last = rows[rows.length - 1]
-    const lastTop = Math.min(...last.map(f => f.bbox_y))
-    if (sorted[i].bbox_y - lastTop <= ROW_TOLERANCE) {
-      last.push(sorted[i])
-    } else {
-      rows.push([sorted[i]])
-    }
-  }
-  return rows.map(faces => ({
-    faces,
-    top:    Math.min(...faces.map(f => f.bbox_y)),
-    bottom: Math.max(...faces.map(f => f.bbox_y + f.bbox_h)),
-    left:   Math.min(...faces.map(f => f.bbox_x)),
-    right:  Math.max(...faces.map(f => f.bbox_x + f.bbox_w)),
-  }))
-}
-
-// Build a single SVG path string that outlines every face row as one shape.
-// Each row becomes a subpath (M…Z); SVG renders them with one stroke.
-function buildFramePath(rows: FaceRow[]): string {
-  return rows
-    .map(r => `M ${r.left} ${r.top} L ${r.right} ${r.top} L ${r.right} ${r.bottom} L ${r.left} ${r.bottom} Z`)
-    .join(' ')
 }
 
 // Pack faces into horizontal shelves on one side of the frame edge.
@@ -145,7 +106,6 @@ function computeLayout(labels: Label[]): PlacedLabel[] {
 }
 
 export default function ShowAllOverlay({ labels }: { labels: Label[] }) {
-  const rows   = useMemo(() => labels.length ? clusterRows(labels) : [], [labels])
   const placed = useMemo(() => computeLayout(labels), [labels])
 
   const containerRef = useRef<HTMLDivElement>(null)
@@ -175,18 +135,6 @@ export default function ShowAllOverlay({ labels }: { labels: Label[] }) {
         preserveAspectRatio="none"
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 9 }}
       >
-        {/* DEBUG: one path outlining all face rows as a single shape */}
-        {rows.length > 0 && (
-          <path
-            d={buildFramePath(rows)}
-            fill="none"
-            stroke="rgba(255,80,80,0.8)"
-            strokeWidth="2"
-            strokeDasharray="0.01 0.01"
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
-
         {placed.map((p) => (
           <line
             key={p.detection_id}

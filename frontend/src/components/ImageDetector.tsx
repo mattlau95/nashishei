@@ -119,14 +119,15 @@ export default function ImageDetector({ src, file, onConfirm }: Props) {
             onClick={() => onConfirm(detections, imageId ?? '', suggestions)}
             disabled={detections.length === 0}
             style={{
-              padding: '0.35rem 0.9rem',
-              background: detections.length > 0 ? '#333' : '#ccc',
-              color: '#fff',
+              padding: 'var(--space-2) var(--space-4)',
+              background: detections.length > 0 ? 'var(--color-blue)' : 'rgba(120,120,128,0.20)',
+              color: detections.length > 0 ? '#fff' : 'rgba(60,60,67,0.40)',
               border: 'none',
-              borderRadius: 'var(--radius-sm)',
+              borderRadius: 'var(--radius-pill)',
               cursor: detections.length > 0 ? 'pointer' : 'not-allowed',
               fontWeight: 600,
               whiteSpace: 'nowrap',
+              minHeight: 'var(--tap-target)',
             }}
           >
             Name faces →

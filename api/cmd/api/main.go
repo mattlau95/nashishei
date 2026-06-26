@@ -50,10 +50,12 @@ func main() {
 	r.Post("/auth/logout", handler.Logout())
 	r.Get("/share/{token}", handler.GetSharedImage(pool, store))
 	r.Post("/share/{token}/name", handler.NameDetectionViaShare(pool))
+	r.Put("/share/{token}/name", handler.RenameViaShare(pool))
 	r.Get("/s/{token}", handler.ShareOGPage(pool, store, cfg))
 
-	// Serve uploaded files
+	// Serve uploaded files — CORS header allows canvas toDataURL from any frontend origin
 	r.Get("/files/*", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		rctx := chi.RouteContext(r.Context())
 		prefix := strings.TrimSuffix(rctx.RoutePattern(), "/*")
 		http.StripPrefix(prefix, http.FileServer(http.Dir(cfg.StoragePath))).ServeHTTP(w, r)
@@ -63,6 +65,7 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.RequireAuth(cfg.JWTSecret))
 
+		r.Get("/images", handler.ListImages(pool, store))
 		r.Post("/images", handler.UploadImage(pool, store))
 		r.Get("/images/{id}", handler.GetImage(pool, store))
 		r.Post("/images/{id}/detect", handler.DetectImage(pool, store, cfg))

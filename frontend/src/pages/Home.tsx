@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import ImageDetector from '../components/ImageDetector'
 import FaceNameList from '../components/FaceNameList'
 import type { Detection, Suggestion } from '../types/detection'
 
 type Step = 'pick' | 'qc' | 'name'
+type GalleryImage = { id: string; thumbnail_url: string; share_token: string | null }
 
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_SIZE_MB = 50
@@ -16,6 +18,17 @@ export default function Home() {
   const [confirmedImageId, setConfirmedImageId] = useState<string | null>(null)
   const [confirmedSuggestions, setConfirmedSuggestions] = useState<Suggestion[]>([])
   const [pickError, setPickError] = useState<string | null>(null)
+  const [gallery, setGallery] = useState<GalleryImage[]>([])
+  const [galleryLoaded, setGalleryLoaded] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (step !== 'pick') return
+    fetch('/api/images')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((items: GalleryImage[]) => { setGallery(items); setGalleryLoaded(true) })
+      .catch(() => setGalleryLoaded(true))
+  }, [step])
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -53,24 +66,92 @@ export default function Home() {
   }
 
   return (
-    <main>
-      <h1>nàshìshéi</h1>
-
+    <main style={{ padding: step === 'pick' ? 'var(--space-6)' : 0 }}>
       {step === 'pick' && (
         <>
-          <p style={{ fontSize: 'var(--text-lg)', color: 'var(--color-text)', marginBottom: 'var(--space-1)' }}>
-            Who Is That? 那是谁
+          <h1 style={{ marginBottom: 'var(--space-2)' }}>nàshìshéi</h1>
+          <p style={{ fontSize: 'var(--text-base)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-6)' }}>
+            那是谁 — Put a name to every face.
           </p>
-          <p style={{ fontSize: 'var(--text-base)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-5)' }}>
-            Put a name to every face.
-          </p>
+
+          {/* Gallery of previous uploads */}
+          {galleryLoaded && gallery.length > 0 && (
+            <section style={{ marginBottom: 'var(--space-6)' }}>
+              <h2 style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--color-text)', marginBottom: 'var(--space-3)', margin: `0 0 var(--space-3)` }}>
+                Your photos
+              </h2>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: 'var(--space-2)',
+              }}>
+                {gallery.map((img) => {
+                  const thumb = (
+                    <div style={{
+                      aspectRatio: '1',
+                      borderRadius: 'var(--radius-md)',
+                      overflow: 'hidden',
+                      background: 'var(--color-fill)',
+                    }}>
+                      <img
+                        src={img.thumbnail_url}
+                        alt=""
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                      />
+                    </div>
+                  )
+                  return img.share_token ? (
+                    <Link key={img.id} to={`/s/${img.share_token}`} style={{ display: 'block', textDecoration: 'none' }}>
+                      {thumb}
+                    </Link>
+                  ) : (
+                    <div key={img.id} style={{ opacity: 0.55 }}>{thumb}</div>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* Tap zone */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click() }}
+            style={{
+              border: '2px dashed var(--color-separator)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '48px 24px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 'var(--space-3)',
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+          >
+            <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden>
+              <rect width="40" height="40" rx="10" fill="var(--color-fill)"/>
+              <path d="M20 12v16M12 20h16" stroke="var(--color-blue)" strokeWidth="2.5" strokeLinecap="round"/>
+            </svg>
+            <p style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--color-blue)', margin: 0 }}>
+              {gallery.length > 0 ? 'Upload new photo' : 'Choose photo'}
+            </p>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', margin: 0 }}>
+              JPEG, PNG or WebP · up to {MAX_SIZE_MB} MB
+            </p>
+          </div>
+
           <input
+            ref={fileInputRef}
             type="file"
             accept="image/jpeg,image/png,image/webp"
             onChange={handleFileChange}
+            style={{ display: 'none' }}
           />
+
           {pickError && (
-            <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: 'var(--space-2)' }}>
+            <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: 'var(--space-3)' }}>
               {pickError}
             </p>
           )}
@@ -78,12 +159,14 @@ export default function Home() {
       )}
 
       {(step === 'qc' || step === 'name') && (
-        <button
-          onClick={step === 'name' ? () => setStep('qc') : reset}
-          style={{ marginBottom: 'var(--space-3)' }}
-        >
-          ← Back
-        </button>
+        <div style={{ padding: 'var(--space-3) var(--space-4)' }}>
+          <button
+            onClick={step === 'name' ? () => setStep('qc') : reset}
+            style={{ background: 'none', border: 'none', color: 'var(--color-blue)', padding: 0, fontSize: 'var(--text-base)', fontWeight: 500 }}
+          >
+            ← Back
+          </button>
+        </div>
       )}
 
       {step === 'qc' && imageSrc && file && (
@@ -91,10 +174,19 @@ export default function Home() {
       )}
 
       {step === 'name' && imageSrc && file && (
-        <>
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-3)' }}>
+        <div style={{ padding: '0 var(--space-4)' }}>
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            background: 'var(--color-fill)',
+            borderRadius: 'var(--radius-pill)',
+            padding: '4px 12px',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--color-text-muted)',
+            marginBottom: 'var(--space-4)',
+          }}>
             Step 2 of 2 — name the faces
-          </p>
+          </div>
           <FaceNameList
             file={file}
             imgSrc={imageSrc}
@@ -102,7 +194,7 @@ export default function Home() {
             imageId={confirmedImageId ?? undefined}
             suggestions={confirmedSuggestions}
           />
-        </>
+        </div>
       )}
     </main>
   )

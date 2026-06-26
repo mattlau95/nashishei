@@ -35,43 +35,94 @@ export default function AuthPage({ onAuthed }: Props) {
   }
 
   return (
-    <main style={{ maxWidth: 360, margin: '10vh auto', padding: 'var(--space-5)' }}>
-      <h1 style={{ marginBottom: 'var(--space-1)' }}>nàshìshéi</h1>
-      <p style={{ color: 'var(--color-text-muted)', marginBottom: 'var(--space-5)', fontSize: 'var(--text-sm)' }}>
-        那是谁 — Who Is That?
-      </p>
+    <main
+      style={{
+        minHeight: '100svh',
+        background: 'var(--color-surface)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 'var(--space-5)',
+      }}
+    >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: 380,
+          background: 'var(--color-bg)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '36px 32px',
+          boxShadow: '0 2px 20px rgba(0,0,0,0.08)',
+        }}
+      >
+        <h1 style={{ fontSize: 'var(--text-title)', marginBottom: 4 }}>nàshìshéi</h1>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: 28 }}>
+          那是谁 — Who Is That?
+        </p>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-          autoFocus
-        />
-        <input
-          type="password"
-          placeholder={mode === 'register' ? 'Password (8+ chars)' : 'Password'}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-        {error && (
-          <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', margin: 0 }}>{error}</p>
-        )}
-        <button type="submit" disabled={loading} style={{ padding: '0.6rem', fontWeight: 600 }}>
-          {loading ? '…' : mode === 'login' ? 'Sign in' : 'Create account'}
-        </button>
-      </form>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoFocus
+          />
+          <input
+            type="password"
+            placeholder={mode === 'register' ? 'Password (8+ chars)' : 'Password'}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
 
-      <p style={{ marginTop: 'var(--space-4)', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textAlign: 'center' }}>
-        {mode === 'login' ? (
-          <>No account? <button onClick={() => { setMode('register'); setError(null) }} style={{ background: 'none', border: 'none', color: 'var(--color-accent)', cursor: 'pointer', padding: 0, fontSize: 'inherit' }}>Register</button></>
-        ) : (
-          <>Have an account? <button onClick={() => { setMode('login'); setError(null) }} style={{ background: 'none', border: 'none', color: 'var(--color-accent)', cursor: 'pointer', padding: 0, fontSize: 'inherit' }}>Sign in</button></>
-        )}
-      </p>
+          {error && (
+            <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', margin: 0 }}>{error}</p>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              marginTop: 4,
+              padding: '14px',
+              width: '100%',
+              background: loading ? 'rgba(0,122,255,0.5)' : 'var(--color-blue)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 'var(--radius-pill)',
+              fontWeight: 600,
+              fontSize: 'var(--text-base)',
+              cursor: loading ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {loading ? '…' : mode === 'login' ? 'Sign in' : 'Create account'}
+          </button>
+        </form>
+
+        <p style={{ marginTop: 'var(--space-5)', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textAlign: 'center' }}>
+          {mode === 'login' ? (
+            <>No account?{' '}
+              <button
+                onClick={() => { setMode('register'); setError(null) }}
+                style={{ background: 'none', border: 'none', color: 'var(--color-blue)', cursor: 'pointer', padding: 0, fontSize: 'inherit', fontWeight: 600 }}
+              >
+                Register
+              </button>
+            </>
+          ) : (
+            <>Have an account?{' '}
+              <button
+                onClick={() => { setMode('login'); setError(null) }}
+                style={{ background: 'none', border: 'none', color: 'var(--color-blue)', cursor: 'pointer', padding: 0, fontSize: 'inherit', fontWeight: 600 }}
+              >
+                Sign in
+              </button>
+            </>
+          )}
+        </p>
+      </div>
     </main>
   )
 }

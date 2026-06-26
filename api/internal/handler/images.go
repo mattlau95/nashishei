@@ -144,6 +144,44 @@ func GetImage(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
 	}
 }
 
+func ListImages(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		accountID := middleware.AccountID(r.Context())
+		rows, err := db.Query(r.Context(),
+			`SELECT id, share_token FROM images WHERE account_id = $1 ORDER BY created_at DESC`,
+			accountID,
+		)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		type item struct {
+			ID           string  `json:"id"`
+			ThumbnailURL string  `json:"thumbnail_url"`
+			ShareToken   *string `json:"share_token"`
+		}
+		var items []item
+		for rows.Next() {
+			var id string
+			var shareToken *string
+			rows.Scan(&id, &shareToken)
+			items = append(items, item{
+				ID:           id,
+				ThumbnailURL: store.URL(accountID, id, "thumb.jpg"),
+				ShareToken:   shareToken,
+			})
+		}
+		if items == nil {
+			items = []item{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(items)
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

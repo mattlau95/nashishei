@@ -19,9 +19,10 @@ function sortedDetections(dets: Detection[]): Detection[] {
 
 export default function FaceNameList({ file, imgSrc, detections, imageId, suggestions = [] }: Props) {
   const sorted = sortedDetections(detections)
+  const suggestionMap = Object.fromEntries(suggestions.map((s) => [s.detection_id, s]))
   const [crops, setCrops] = useState<Record<string, string>>({})
   const [names, setNames] = useState<Record<string, string>>(() =>
-    Object.fromEntries(detections.map((d) => [d.id, ''])),
+    Object.fromEntries(detections.map((d) => [d.id, suggestionMap[d.id]?.display_name ?? ''])),
   )
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
@@ -35,9 +36,6 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
   const [copied, setCopied] = useState(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
-  const suggestionMap = Object.fromEntries(suggestions.map((s) => [s.detection_id, s]))
-
-  // Extract face crops from the image using canvas
   useEffect(() => {
     const img = new Image()
     img.onload = () => {
@@ -101,8 +99,6 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
       let savedDets: SavedDetection[]
 
       if (imageId) {
-        // Image already uploaded and detections already persisted by the detect hook.
-        // Server-assigned detection IDs are already in `sorted`.
         resolvedImageId = imageId
         savedDets = sorted.map((d) => ({
           id: d.id,
@@ -113,7 +109,6 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
           source: d.source,
         }))
       } else {
-        // Legacy path: upload image then batch-save detections.
         const formData = new FormData()
         formData.append('image', file)
         const imgRes = await fetch('/api/images', { method: 'POST', body: formData, credentials: 'include' })
@@ -142,7 +137,6 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
         savedDets = batchData.detections
       }
 
-      // For each named face: create person + tag
       for (let i = 0; i < sorted.length; i++) {
         const name = names[sorted[i].id]?.trim()
         if (!name) continue
@@ -201,10 +195,29 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const primaryBtn: React.CSSProperties = {
+    padding: 'var(--space-3) var(--space-5)',
+    background: 'var(--color-blue)',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 'var(--radius-pill)',
+    cursor: 'pointer',
+    fontSize: 'var(--text-base)',
+    fontWeight: 600,
+    minHeight: 'var(--tap-target)',
+  }
+
+  const disabledBtn: React.CSSProperties = {
+    ...primaryBtn,
+    background: 'rgba(120,120,128,0.20)',
+    color: 'rgba(60,60,67,0.40)',
+    cursor: 'not-allowed',
+  }
+
   if (done) {
     return (
       <div style={{ padding: 'var(--space-6) 0', textAlign: 'center' }}>
-        <p style={{ fontSize: 'var(--text-lg)', marginBottom: 'var(--space-2)' }}>Saved!</p>
+        <p style={{ fontSize: 'var(--text-lg)', fontWeight: 600, marginBottom: 'var(--space-2)' }}>Saved!</p>
         <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: 'var(--space-5)' }}>
           {namedCount} of {sorted.length} faces named.
         </p>
@@ -213,16 +226,7 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
           <button
             onClick={() => void handleShare()}
             disabled={sharing}
-            style={{
-              padding: 'var(--space-2) var(--space-5)',
-              background: sharing ? '#aaa' : '#333',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '9999px',
-              cursor: sharing ? 'not-allowed' : 'pointer',
-              fontSize: 'var(--text-base)',
-              fontWeight: 600,
-            }}
+            style={sharing ? disabledBtn : primaryBtn}
           >
             {sharing ? 'Generating link…' : 'Share photo'}
           </button>
@@ -235,32 +239,25 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
               <input
                 readOnly
                 value={shareUrl}
-                style={{
-                  flex: 1,
-                  padding: 'var(--space-2)',
-                  fontSize: 'var(--text-sm)',
-                  border: '1px solid #ccc',
-                  borderRadius: 'var(--radius-sm)',
-                  minWidth: 0,
-                  background: 'var(--color-surface)',
-                }}
+                style={{ flex: 1, minWidth: 0, padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--text-sm)' }}
               />
               <button
                 onClick={() => void handleCopy()}
                 style={{
                   padding: 'var(--space-2) var(--space-3)',
-                  background: copied ? '#4caf50' : '#333',
-                  color: '#fff',
+                  background: copied ? 'rgba(0,122,255,0.12)' : 'var(--color-fill)',
+                  color: 'var(--color-blue)',
                   border: 'none',
-                  borderRadius: 'var(--radius-sm)',
+                  borderRadius: 'var(--radius-md)',
                   cursor: 'pointer',
                   fontSize: 'var(--text-sm)',
                   fontWeight: 600,
                   flexShrink: 0,
                   transition: 'background 0.15s',
+                  minHeight: 'var(--tap-target)',
                 }}
               >
-                {copied ? 'Copied!' : 'Copy'}
+                {copied ? '✓ Copied' : 'Copy'}
               </button>
             </div>
           </div>
@@ -274,29 +271,28 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
   }
 
   return (
-    <div>
-      {/* Bulk-entry hint */}
+    <div style={{ paddingBottom: 'var(--space-6)' }}>
       <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-3)', lineHeight: 1.5 }}>
         Type each person's full name. Tab or Enter moves to the next face.
         Unnamed faces will be saved without a label.
       </p>
 
       {/* Progress counter + bulk entry toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-4)' }}>
         <p style={{ fontSize: 'var(--text-sm)', fontWeight: 600, margin: 0 }}>
           {namedCount} of {sorted.length} named
         </p>
         <button
           onClick={() => { setBulkOpen((v) => !v); setBulkInput('') }}
           style={{
-            padding: '2px 10px',
-            background: bulkOpen ? 'var(--color-text-muted)' : 'transparent',
-            color: bulkOpen ? '#fff' : 'var(--color-text-muted)',
-            border: '1px solid',
-            borderColor: bulkOpen ? 'transparent' : 'var(--color-text-muted)',
-            borderRadius: 'var(--radius-sm)',
+            padding: '4px 12px',
+            background: bulkOpen ? 'var(--color-blue)' : 'transparent',
+            color: bulkOpen ? '#fff' : 'var(--color-blue)',
+            border: 'none',
+            borderRadius: 'var(--radius-pill)',
             cursor: 'pointer',
             fontSize: 'var(--text-sm)',
+            fontWeight: 600,
           }}
         >
           Paste names
@@ -305,7 +301,7 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
 
       {/* Bulk name entry */}
       {bulkOpen && (
-        <div style={{ marginBottom: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+        <div style={{ marginBottom: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <textarea
             autoFocus
             value={bulkInput}
@@ -313,41 +309,24 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
             onKeyDown={(e) => { if (e.key === 'Escape') { setBulkOpen(false); setBulkInput('') } }}
             placeholder="Alice, Bob, 张三, 李四, …"
             rows={3}
-            style={{
-              width: '100%',
-              padding: 'var(--space-2)',
-              fontSize: 'var(--text-base)',
-              border: '1px solid #ccc',
-              borderRadius: 'var(--radius-sm)',
-              resize: 'vertical',
-              boxSizing: 'border-box',
-            }}
+            style={{ resize: 'vertical' }}
           />
           <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
             <button
               onClick={applyBulkNames}
               disabled={!bulkInput.trim()}
-              style={{
-                padding: '4px 16px',
-                background: bulkInput.trim() ? '#333' : '#ccc',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 'var(--radius-sm)',
-                cursor: bulkInput.trim() ? 'pointer' : 'not-allowed',
-                fontSize: 'var(--text-sm)',
-                fontWeight: 600,
-              }}
+              style={bulkInput.trim() ? { ...primaryBtn, padding: 'var(--space-2) var(--space-4)' } : { ...disabledBtn, padding: 'var(--space-2) var(--space-4)' }}
             >
               Apply
             </button>
             <button
               onClick={() => { setBulkOpen(false); setBulkInput('') }}
               style={{
-                padding: '4px 12px',
+                padding: 'var(--space-2) var(--space-3)',
                 background: 'transparent',
                 color: 'var(--color-text-muted)',
-                border: '1px solid #ccc',
-                borderRadius: 'var(--radius-sm)',
+                border: 'none',
+                borderRadius: 'var(--radius-pill)',
                 cursor: 'pointer',
                 fontSize: 'var(--text-sm)',
               }}
@@ -359,7 +338,7 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
       )}
 
       {/* Face list */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginBottom: 'var(--space-5)' }}>
         {sorted.map((det, idx) => {
           const named = names[det.id]?.trim() !== ''
           return (
@@ -369,11 +348,12 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
                 display: 'flex',
                 alignItems: 'center',
                 gap: 'var(--space-3)',
-                padding: 'var(--space-1) var(--space-2)',
+                padding: 'var(--space-2) var(--space-3)',
                 borderRadius: 'var(--radius-md)',
-                background: named ? 'var(--color-accent-tint)' : 'transparent',
-                border: '1px solid',
-                borderColor: named ? 'var(--color-accent-tint-border)' : '#e0e0e0',
+                background: named ? 'var(--color-accent-tint)' : '#fff',
+                boxShadow: named
+                  ? `0 0 0 1.5px var(--color-accent-tint-border), 0 1px 4px rgba(0,0,0,0.05)`
+                  : '0 1px 4px rgba(0,0,0,0.06)',
               }}
             >
               {/* Crop thumbnail */}
@@ -407,14 +387,6 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
                   value={names[det.id] ?? ''}
                   onChange={(e) => setNames((prev) => ({ ...prev, [det.id]: e.target.value }))}
                   onKeyDown={(e) => handleKeyDown(e, idx)}
-                  style={{
-                    width: '100%',
-                    padding: 'var(--space-2) var(--space-2)',
-                    fontSize: 'var(--text-base)',
-                    border: '1px solid #ccc',
-                    borderRadius: 'var(--radius-sm)',
-                    boxSizing: 'border-box',
-                  }}
                 />
                 {(() => {
                   const suggestion = suggestionMap[det.id]
@@ -427,13 +399,14 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
                       <button
                         onClick={() => setNames((prev) => ({ ...prev, [det.id]: suggestion.display_name }))}
                         style={{
-                          padding: '2px 8px',
-                          background: 'var(--color-accent-tint)',
-                          border: '1px solid var(--color-accent-tint-border)',
-                          borderRadius: 'var(--radius-sm)',
+                          padding: '2px 10px',
+                          background: 'rgba(0,122,255,0.10)',
+                          color: 'var(--color-blue)',
+                          border: 'none',
+                          borderRadius: 'var(--radius-pill)',
                           cursor: 'pointer',
                           fontSize: 'var(--text-sm)',
-                          fontStyle: 'italic',
+                          fontWeight: 600,
                         }}
                       >
                         ✓ {suggestion.display_name}
@@ -441,13 +414,13 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
                       <button
                         onClick={() => setDismissed((prev) => new Set([...prev, det.id]))}
                         style={{
-                          padding: '2px 6px',
+                          padding: '2px 8px',
                           background: 'transparent',
-                          border: '1px solid #ccc',
-                          borderRadius: 'var(--radius-sm)',
+                          color: 'var(--color-text-muted)',
+                          border: 'none',
+                          borderRadius: 'var(--radius-pill)',
                           cursor: 'pointer',
                           fontSize: 'var(--text-sm)',
-                          color: 'var(--color-text-muted)',
                         }}
                       >
                         ×
@@ -461,7 +434,6 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
         })}
       </div>
 
-      {/* Error */}
       {error && (
         <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginBottom: 'var(--space-3)' }}>{error}</p>
       )}
@@ -470,16 +442,7 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
       <button
         onClick={() => void handleSave()}
         disabled={saving}
-        style={{
-          padding: 'var(--space-2) var(--space-5)',
-          background: saving ? '#aaa' : '#333',
-          color: '#fff',
-          border: 'none',
-          borderRadius: 'var(--radius-sm)',
-          cursor: saving ? 'not-allowed' : 'pointer',
-          fontWeight: 600,
-          fontSize: 'var(--text-base)',
-        }}
+        style={{ ...(saving ? disabledBtn : primaryBtn), width: '100%' }}
       >
         {saving ? 'Saving…' : 'Save names'}
       </button>

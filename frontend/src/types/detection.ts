@@ -11,4 +11,5 @@ export type Suggestion = {
   detection_id: string
   person_id: string
   display_name: string
+  similarity?: number
 }

@@ -216,6 +216,49 @@ func NameDetectionViaShare(db *pgxpool.Pool) http.HandlerFunc {
 	}
 }
 
+func RenameViaShare(db *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := chi.URLParam(r, "token")
+
+		var req struct {
+			DetectionID string `json:"detection_id"`
+			DisplayName string `json:"display_name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		req.DisplayName = strings.TrimSpace(req.DisplayName)
+		if req.DisplayName == "" || len([]rune(req.DisplayName)) > 200 {
+			http.Error(w, "display_name must be 1–200 chars", http.StatusBadRequest)
+			return
+		}
+
+		tag, err := db.Exec(r.Context(),
+			`UPDATE persons p
+			 SET display_name = $3
+			 FROM tags t, detections d, images i
+			 WHERE t.person_id = p.id
+			   AND t.detection_id = d.id AND t.status = 'confirmed'
+			   AND d.image_id = i.id
+			   AND i.share_token = $1
+			   AND d.id = $2`,
+			token, req.DetectionID, req.DisplayName,
+		)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		if tag.RowsAffected() == 0 {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"display_name": req.DisplayName})
+	}
+}
+
 func generateToken() (string, error) {
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {
