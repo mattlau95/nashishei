@@ -280,3 +280,47 @@
 * Phase 1.5 planning — server-side detection persistence, no-account viewer naming, OG preview card
 
 ---
+
+## 2026-06-26 — iOS redesign + MAT-507/508/509/510/511
+
+**Session Goal:** Restyle the entire site to match the iOS system palette; close five queued tickets: remove debug bbox, auto-fill ML suggestions, viewer action bar rename + Browse/Edit Names, home gallery, viewer back button.
+**Status:** Completed ✅
+
+### The "Why" (Decision Log)
+
+* **iOS system palette (`#007AFF`, SF Pro, `rgba(60,60,67,0.18)` separator) over the existing custom design system:** The Slideshow prototype was already iOS-flavoured. Matching the whole site to iOS makes the product feel native on the primary use device (iPhone) without inventing a bespoke design language. The original tokens were an early approximation; these are the canonical system values.
+
+* **`PUT /share/:token/name` as a new endpoint over updating `POST` to be an upsert:** All faces shown in CastGrid are already named — the POST endpoint INSERTs a new `persons` row + `tags` row, which would 409 on every edit attempt. A dedicated PUT that UPDATEs `persons.display_name` keeps the semantics clean (POST = first-time name, PUT = correction) and requires no change to the POST code path.
+
+* **`suggestionMap` declared before `names` useState initializer (MAT-508 fix):** The useState initializer references `suggestionMap` to seed pre-filled names. In JavaScript, a `const` declared below its use in a closure that runs at module parse time hits a temporal dead zone error. Moving the declaration above the useState call is the only fix — no workaround.
+
+* **CastGrid available in both ≤12 and ≥12 modes over separate Browse panels:** The user asked for Browse/Edit Names in both viewer modes. The CastGrid component already handles arbitrary label counts; removing the `!canShowAll` gate adds the feature with a one-line change. No second component needed.
+
+* **`← Home` as an absolute-positioned pill over adding it to the action bar:** The action bar only renders when `namedLabels.length > 0`. A photo with no named faces would show no back navigation at all. Positioning it absolute over the photo guarantees visibility regardless of naming state.
+
+* **Unshared photos rendered at 55% opacity (not hidden) in the gallery:** The gallery is the user's record of all uploads, not just shared ones. Hiding unshared photos would silently delete history from their perspective. Dimming signals "incomplete" without erasing the entry.
+
+* **`useEffect` on `step === 'pick'` for gallery re-fetch over fetching once on mount:** When a user completes a naming flow and `reset()` is called, `step` returns to `'pick'` and the effect re-fires. This gives automatic gallery refresh after upload with zero explicit user action and no state threading.
+
+* **`SHOW_ALL_MAX = 12` over a higher threshold:** 12 is a conservative upper bound for the show-all overlay at MVP — at 12 labels the overlay is already approaching its density limit. The constant is intentionally named and isolated so it can be lowered after real-photo testing without a search-and-replace.
+
+* **SpotlightPlayer coverflow as Slideshow (not Browse Names):** The coverflow improves the Slideshow experience itself — face-by-face navigation with crop thumbnails is a better slideshow than a plain list. Browse Names is a different task (finding a specific person); Slideshow is a presenting/reviewing task that the coverflow suits naturally.
+
+### Technical Notes
+
+* **iOS design system:** `tokens.css` completely rewritten — `--color-blue: #007AFF`, `--color-fill: rgba(120,120,128,0.12)`, `--color-separator: rgba(60,60,67,0.18)`, `--radius-pill: 9999px`, `--tap-target: 44px`. `index.css` rewritten with `-apple-system, "SF Pro Display"` font stack. All pages and components updated in one pass.
+* **New components:** `CastGrid.tsx` (browse/edit roster with per-row inline edit), `SpotlightPlayer.tsx` (coverflow carousel), `useFaceCrops.ts` (shared canvas crop hook).
+* **MAT-507:** Removed `FaceRow` type, `clusterRows` function, `buildFramePath` function, `ROW_TOLERANCE` constant, `rows` useMemo, and the debug `<path>` block from `ShowAllOverlay.tsx` — all were dead code once the debug frame was removed.
+* **MAT-508:** `Suggestion` type gained `similarity?: number` (API already returns it). `FaceNameList` seeds the `names` useState initializer from `suggestionMap` so high-confidence detections arrive pre-filled; user can still clear or edit them.
+* **MAT-509:** `RenameViaShare` uses a single `UPDATE persons … FROM tags, detections, images WHERE i.share_token = $1 AND d.id = $2` — no transaction needed since it's a single UPDATE, not an INSERT chain.
+* **MAT-510:** `ListImages` queries `SELECT id, share_token FROM images WHERE account_id = $1 ORDER BY created_at DESC` — no storage_key parsing needed since `accountID` is already in context. `images` table already had `created_at`, so no migration.
+* **MAT-511:** Link renders inside the photo `<div>` (which has `position: relative`) at `zIndex: 20` — above ShowAllOverlay labels (zIndex 9/10), no conflict with NamePopover (zIndex 20, different location).
+* `go build ./...` and `tsc --noEmit` both pass clean.
+
+### Next Session
+
+* Validate gallery on first-time-upload (no photos yet) and after a complete flow (new photo appears)
+* Validate Browse/Edit Names rename flow end-to-end against the live API
+* Consider lowering `SHOW_ALL_MAX` below 12 after real-photo density testing
+
+---
