@@ -26,7 +26,7 @@ type GestureRef = {
 }
 
 export function useZoomPan(opts: {
-  containerRef: React.RefObject<HTMLDivElement>
+  containerRef: React.RefObject<HTMLDivElement | null>
   disabled?: boolean
 }) {
   const { containerRef, disabled } = opts

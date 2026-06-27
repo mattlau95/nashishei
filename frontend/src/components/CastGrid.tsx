@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { api } from '../lib/api'
 
 const CROP_SIZE = 72
 
@@ -60,7 +61,7 @@ export default function CastGrid({ labels, totalFaces, crops, highlightedId, onH
     setSaving(true)
     setEditError(null)
     try {
-      const res = await fetch(`/api/share/${token}/name`, {
+      const res = await api(`/api/share/${token}/name`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ detection_id: editingId, display_name: name }),

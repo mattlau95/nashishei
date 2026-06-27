@@ -98,7 +98,8 @@ func Logout() http.HandlerFunc {
 			Path:     "/",
 			MaxAge:   -1,
 			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
+			Secure:   true,
+			SameSite: http.SameSiteNoneMode,
 		})
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -116,7 +117,8 @@ func setSessionCookie(w http.ResponseWriter, accountID, secret string) {
 		Path:     "/",
 		MaxAge:   int((7 * 24 * time.Hour).Seconds()),
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
 	})
 }
 

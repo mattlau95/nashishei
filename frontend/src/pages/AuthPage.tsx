@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { api } from '../lib/api'
 
 type Props = { onAuthed: () => void }
 
@@ -14,7 +15,7 @@ export default function AuthPage({ onAuthed }: Props) {
     setError(null)
     setLoading(true)
     try {
-      const res = await fetch(`/api/auth/${mode}`, {
+      const res = await api(`/api/auth/${mode}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

@@ -70,6 +70,7 @@ func main() {
 		r.Post("/images", handler.UploadImage(pool, store))
 		r.Get("/images/{id}", handler.GetImage(pool, store))
 		r.Post("/images/{id}/detect", handler.DetectImage(pool, store, cfg))
+		r.Post("/images/{id}/detect-client", handler.DetectImageFromClient(pool, cfg))
 		r.Post("/images/{id}/share", handler.GenerateShareToken(pool, cfg))
 		r.Delete("/images/{id}/share", handler.RevokeShareToken(pool))
 
@@ -86,23 +87,19 @@ func main() {
 	}
 }
 
-func corsMiddleware(frontendURL string) func(http.Handler) http.Handler {
-	allowed := map[string]bool{
-		frontendURL:            true,
-		"http://localhost:5173": true,
-		"http://localhost:5174": true,
-		"tauri://localhost":     true,
-		"https://tauri.localhost": true,
-	}
+func corsMiddleware(_ string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			if allowed[origin] {
+			if origin != "" {
+				// Reflect the exact origin so credentials work (wildcard + credentials is invalid per spec)
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			} else {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
 			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
 				return

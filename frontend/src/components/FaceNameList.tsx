@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { api } from '../lib/api'
 import type { Detection, Suggestion } from '../types/detection'
 
 type Props = {
@@ -111,13 +112,13 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
       } else {
         const formData = new FormData()
         formData.append('image', file)
-        const imgRes = await fetch('/api/images', { method: 'POST', body: formData, credentials: 'include' })
+        const imgRes = await api('/api/images', { method: 'POST', body: formData, credentials: 'include' })
         if (imgRes.status === 401) throw new Error('Not logged in — please sign in to save.')
         if (!imgRes.ok) throw new Error(`Image upload failed (${imgRes.status})`)
         const imgData = (await imgRes.json()) as { id: string }
         resolvedImageId = imgData.id
 
-        const batchRes = await fetch('/api/detections/batch', {
+        const batchRes = await api('/api/detections/batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -143,7 +144,7 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
         const detId = savedDets[i]?.id
         if (!detId) continue
 
-        const personRes = await fetch('/api/persons', {
+        const personRes = await api('/api/persons', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -152,7 +153,7 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
         if (!personRes.ok) throw new Error(`Failed to create person "${name}" (${personRes.status})`)
         const personData = (await personRes.json()) as { id: string }
 
-        const tagRes = await fetch('/api/tags', {
+        const tagRes = await api('/api/tags', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -174,7 +175,7 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
     if (!savedImageId) return
     setSharing(true)
     try {
-      const res = await fetch(`/api/images/${savedImageId}/share`, {
+      const res = await api(`/api/images/${savedImageId}/share`, {
         method: 'POST',
         credentials: 'include',
       })

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { api } from '../lib/api'
 import { Link } from 'react-router-dom'
 import ImageDetector from '../components/ImageDetector'
 import FaceNameList from '../components/FaceNameList'
@@ -24,7 +25,7 @@ export default function Home() {
 
   useEffect(() => {
     if (step !== 'pick') return
-    fetch('/api/images')
+    api('/api/images')
       .then((r) => (r.ok ? r.json() : []))
       .then((items: GalleryImage[]) => { setGallery(items); setGalleryLoaded(true) })
       .catch(() => setGalleryLoaded(true))

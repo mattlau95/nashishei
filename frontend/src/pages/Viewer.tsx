@@ -4,6 +4,7 @@ import ShowAllOverlay from '../components/ShowAllOverlay'
 import CastGrid from '../components/CastGrid'
 import SpotlightPlayer, { SpotlightOverlay } from '../components/SpotlightPlayer'
 import { useFaceCrops } from '../hooks/useFaceCrops'
+import { api } from '../lib/api'
 
 type SharedLabel = {
   detection_id: string
@@ -82,7 +83,7 @@ function NamePopover({
     setSaving(true)
     setErr(null)
     try {
-      const res = await fetch(`/api/share/${token}/name`, {
+      const res = await api(`/api/share/${token}/name`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ detection_id: label.detection_id, display_name: name }),
@@ -268,7 +269,7 @@ export default function Viewer() {
 
   useEffect(() => {
     if (!token) return
-    fetch(`/api/share/${token}`)
+    api(`/api/share/${token}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then(setData)
       .catch(() => setError(true))
