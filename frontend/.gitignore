@@ -18,6 +18,7 @@ public/mediapipe-wasm/
 # Tauri build artifacts
 src-tauri/target/
 src-tauri/gen/
+src-tauri/binaries/
 
 # Editor directories and files
 .vscode/*
