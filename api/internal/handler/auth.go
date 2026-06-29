@@ -51,7 +51,7 @@ func Register(db *pgxpool.Pool, cfg config.Config) http.HandlerFunc {
 			return
 		}
 
-		setSessionCookie(w, id, cfg.JWTSecret)
+		setSessionCookie(w, id, cfg)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{"id": id, "email": body.Email})
@@ -84,13 +84,13 @@ func Login(db *pgxpool.Pool, cfg config.Config) http.HandlerFunc {
 			return
 		}
 
-		setSessionCookie(w, id, cfg.JWTSecret)
+		setSessionCookie(w, id, cfg)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"id": id, "email": body.Email})
 	}
 }
 
-func Logout() http.HandlerFunc {
+func Logout(cfg config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "session",
@@ -98,26 +98,26 @@ func Logout() http.HandlerFunc {
 			Path:     "/",
 			MaxAge:   -1,
 			HttpOnly: true,
-			Secure:   true,
+			Secure:   cfg.SecureCookie,
 			SameSite: http.SameSiteNoneMode,
 		})
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-func setSessionCookie(w http.ResponseWriter, accountID, secret string) {
+func setSessionCookie(w http.ResponseWriter, accountID string, cfg config.Config) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"account_id": accountID,
 		"exp":        time.Now().Add(7 * 24 * time.Hour).Unix(),
 	})
-	signed, _ := token.SignedString([]byte(secret))
+	signed, _ := token.SignedString([]byte(cfg.JWTSecret))
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
 		Value:    signed,
 		Path:     "/",
 		MaxAge:   int((7 * 24 * time.Hour).Seconds()),
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   cfg.SecureCookie,
 		SameSite: http.SameSiteNoneMode,
 	})
 }

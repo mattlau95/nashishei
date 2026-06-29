@@ -363,3 +363,77 @@
 * Test upload + detect flow end-to-end in the Tauri window
 
 ---
+
+## 2026-06-26 — Tauri Step 2 — ML sidecar, detect-client, production deploy
+
+**Session Goal:** Bundle InsightFace as a local sidecar for the Tauri desktop app, add a server endpoint for client-provided embeddings, and configure production deployment.
+**Status:** Completed ✅
+
+### The "Why" (Decision Log)
+
+* **PyInstaller self-contained .exe over requiring Python on the user's machine:** Zero user-setup is the bar — they double-click the app. PyInstaller freezes the entire environment into a single binary that Tauri can spawn as a sidecar. A raw script or venv requires a matching Python version and manual dependency install.
+
+* **detect-client architecture (frontend → local sidecar → POST embeddings to cloud) over cloud-side ML:** RAM cost is the constraint. InsightFace + ArcFace needs ~1–2 GB; the cloud API container stays lean (Go + pgvector queries only). The local sidecar does the embedding work; the cloud stores and searches.
+
+* **CORS reflect-any-origin over an explicit allowlist:** The WebView2 runtime generates a non-deterministic origin per installation. The allowlist was blocking every request because the exact origin string was unknown at build time. Reflecting the request's `Origin` header was the only viable path short of fingerprinting each installation.
+
+* **SameSite=None; Secure over SameSite=Lax:** Lax cookies are silently dropped on cross-site requests. The Tauri WebView sends credentialed requests from `tauri://localhost` to `https://api.nashishei.example.com` — a cross-site request — so the auth cookie was never being transmitted. None + Secure is the correct setting for a credentialed cross-origin cookie.
+
+### Technical Notes
+
+* `ml/sidecar_main.py` — minimal FastAPI wrapper around the existing InsightFace pipeline, PyInstaller entry point. `ml/build_sidecar.ps1` — PowerShell build script, outputs `.exe` to `frontend/src-tauri/binaries/`.
+* `frontend/src-tauri/tauri.conf.json` — `externalBin` registers the sidecar; `lib.rs` — `MlSidecar` managed state + `ml_base_url` Tauri command returns the spawned sidecar's port.
+* `api/internal/handler/detect_client.go` — new endpoint `POST /images/{id}/detect-client`. Accepts pre-computed embeddings, stores them, runs pgvector similarity for suggestions. No ML on the server.
+* `api/Dockerfile` — multi-stage build (golang:1.26-alpine → alpine:3.20). `api/fly.toml` — Fly.io config (app: api-black-silence-6888, region: ewr, 1 GB volume).
+* `db/init.sql` — schema + pgvector extension init for Neon deployment.
+* All 7 direct `fetch()` calls in frontend updated to `api()`; `ml.ts` gets `mlApi()`.
+* React 19 compat: `useRef<T>(null)` → `RefObject<T | null>` in `useZoomPan.ts`.
+* `tsc --noEmit` passes clean.
+
+### Next Session
+
+* Auth hardening — 401 interceptor, startup session validation, logout button, conditional Secure cookie
+* Fix dev ML routing (sidecar binary not present on dev machine)
+* MAT-519/520/522/523 — viewer + naming UX
+
+---
+
+## 2026-06-29 — Auth hardening + viewer/naming UX (MAT-519/520/522/523)
+
+**Session Goal:** Harden auth state management, fix dev ML routing, and close five UX tickets across the viewer and naming flow.
+**Status:** Completed ✅
+
+### The "Why" (Decision Log)
+
+* **401 interceptor + startup session validation over trusting `localStorage` alone:** `localStorage['authed']` is a UI gate, not a ground truth — the server cookie can expire without it. The interceptor dispatches `session-expired` on any 401 (non-auth paths); startup validation fires `GET /api/images` on mount and clears the flag if it comes back 401. Together they keep UI state in sync with actual session state.
+
+* **`SecureCookie` conditional on `ENV == "production"` over always Secure:** Browsers reject `Secure` cookies on non-HTTPS origins. Dev runs on `http://localhost`, so `Secure: true` unconditionally broke cookie storage in dev. The conditional gives prod the security requirement without breaking the dev loop.
+
+* **`VITE_ML_BASE=/ml-sidecar` + Vite proxy over running the sidecar binary locally in dev:** The PyInstaller `.exe` isn't built on the dev machine. Routing `mlApi()` calls through the Vite proxy to docker compose's ML service on port 8000 gives the same model with zero binary setup.
+
+* **Sticky image + action bar over a `maxHeight: 40vh` inner scroll box:** The 40vh box was the first pass; nested scrolling (a scroll container inside a scrolling page) fights the browser's natural scroll model and feels clunky. The sticky approach pins the photo and controls at the viewport top and lets the names list scroll as plain page content — the native iOS list-detail pattern.
+
+* **"X named" header text moved into the sticky block over leaving it inside CastGrid:** Useful context that the user explicitly wanted always visible while scrolling through names. Once the sticky layout existed, the count line belongs in the pinned section rather than the scrolling content.
+
+* **Solid `#000` action bar + `#1c1c1e` CastGrid body over transparent/uniform dark:** The transparent action bar let the photo bleed through, creating visual ambiguity about where the sticky block ended. `#000` makes a clean seam. `#1c1c1e` (iOS elevated dark surface) for the names list establishes a visual hierarchy between the two sections.
+
+### Technical Notes
+
+* `api.ts` — 401 interceptor dispatches `session-expired` CustomEvent for all non-`/api/auth/` paths.
+* `App.tsx` — `AuthGate` restructured: startup `GET /api/images` validation clears `authed` if 401; `session-expired` listener; `logout()` function; `checking` state renders nothing until validation completes.
+* `Home.tsx` — `onLogout` prop + "Sign out" button in header; upload tap zone moved above gallery (MAT-520).
+* `config.go` — `SecureCookie bool` derived from `env == "production"`. `auth.go` — `setSessionCookie` + `Logout` consume `cfg.SecureCookie`.
+* `ml.ts` — `VITE_ML_BASE` env var checked before Tauri `invoke`; short-circuits the IPC call when set.
+* `vite.config.ts` — `/ml-sidecar` proxy: `target: http://localhost:8000`, strips prefix.
+* `FaceNameList.tsx` — MAT-522: `position: sticky; bottom: 0` footer with "X of Y named" counter + Save button, replaces inline save. MAT-523: "Paste names" disabled (`opacity: 0.35`, `pointerEvents: none`). MAT-519: "View in your gallery" secondary pill button in done state.
+* `Viewer.tsx` — Copy link button (copies `window.location.href`, "✓ Copied" for 2s). Photo + action bar in `position: sticky; top: 0` wrapper; CastGrid is plain page flow below. "N named" header text lifted from CastGrid into sticky block.
+* `CastGrid.tsx` — `backgroundColor: #1c1c1e`, `borderTop` removed, header text removed (now in Viewer).
+* `tsc --noEmit` passes clean.
+
+### Next Session
+
+* MAT-518 — Sign-in confirmation animation (not yet started)
+* MAT-521 — Duplicate image detection warning (Deep Work, not yet started)
+* Test full upload → detect → name → share flow end-to-end in the Tauri window
+
+---

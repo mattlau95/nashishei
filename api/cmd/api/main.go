@@ -48,7 +48,7 @@ func main() {
 	r.Get("/health", handler.Health(pool))
 	r.Post("/auth/register", handler.Register(pool, cfg))
 	r.Post("/auth/login", handler.Login(pool, cfg))
-	r.Post("/auth/logout", handler.Logout())
+	r.Post("/auth/logout", handler.Logout(cfg))
 	r.Get("/share/{token}", handler.GetSharedImage(pool, store))
 	r.Post("/share/{token}/name", handler.NameDetectionViaShare(pool))
 	r.Put("/share/{token}/name", handler.RenameViaShare(pool))

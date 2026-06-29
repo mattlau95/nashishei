@@ -18,6 +18,10 @@ export default defineConfig(({ mode }) => {
         '/files': {
           target: apiBase,
         },
+        '/ml-sidecar': {
+          target: 'http://localhost:8000',
+          rewrite: (path) => path.replace(/^\/ml-sidecar/, ''),
+        },
       },
     },
   }

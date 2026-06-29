@@ -10,6 +10,7 @@ type Config struct {
 	DatabaseURL         string
 	StoragePath         string
 	Env                 string
+	SecureCookie        bool
 	JWTSecret           string
 	BaseURL             string
 	FrontendURL         string
@@ -19,11 +20,13 @@ type Config struct {
 
 func Load() Config {
 	base := getEnv("BASE_URL", "http://localhost:8080")
+	env := getEnv("ENV", "development")
 	return Config{
 		Port:                getEnv("PORT", "8080"),
 		DatabaseURL:         getEnv("DATABASE_URL", "postgres://nashishei:nashishei@localhost:5432/nashishei?sslmode=disable"),
 		StoragePath:         getEnv("STORAGE_PATH", "./storage"),
-		Env:                 getEnv("ENV", "development"),
+		Env:                 env,
+		SecureCookie:        env == "production",
 		JWTSecret:           getEnv("JWT_SECRET", "dev-secret-change-in-prod"),
 		BaseURL:             base,
 		FrontendURL:         getEnv("FRONTEND_URL", base),

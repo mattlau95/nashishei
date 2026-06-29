@@ -247,6 +247,7 @@ export default function Viewer() {
   const [spotlightLabel, setSpotlightLabel] = useState<SharedLabel | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [pulseKey, setPulseKey] = useState(0)
+  const [linkCopied, setLinkCopied] = useState(false)
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const crops = useFaceCrops(data?.thumbnail_url ?? null, data?.labels ?? [])
@@ -355,6 +356,9 @@ export default function Viewer() {
         paddingBottom: spotlightOpen ? 330 : 0,
       }}
     >
+      {/* Sticky block: photo + action bar pin to top while names list scrolls below */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+
       {/* Photo + overlays */}
       <div
         style={{
@@ -453,8 +457,7 @@ export default function Viewer() {
             gap: 'var(--space-3)',
             justifyContent: 'center',
             flexWrap: 'wrap',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
+            backgroundColor: '#000',
           }}
         >
           {/* Show all labels — ≤12 faces only */}
@@ -485,10 +488,42 @@ export default function Viewer() {
           >
             Slideshow
           </button>
+
+          {/* Copy link */}
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(window.location.href).then(() => {
+                setLinkCopied(true)
+                setTimeout(() => setLinkCopied(false), 2000)
+              })
+            }}
+            style={pillStyle}
+          >
+            {linkCopied ? '✓ Copied' : 'Copy link'}
+          </button>
         </div>
       )}
 
-      {/* Cast grid — browse/edit roster, both modes */}
+      {/* Cast grid header — stays visible with the image */}
+      {showGrid && (
+        <p style={{
+          color: 'rgba(255,255,255,0.5)',
+          fontSize: 'var(--text-sm)',
+          margin: 0,
+          padding: 'var(--space-2) var(--space-4)',
+          textAlign: 'center',
+          backgroundColor: '#111',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+        }}>
+          {data.labels.length > namedLabels.length
+            ? `${namedLabels.length} of ${data.labels.length} named — tap a name to find them in the photo`
+            : `${namedLabels.length} named — tap a name to find them in the photo`}
+        </p>
+      )}
+
+      </div>{/* end sticky block */}
+
+      {/* Cast grid — normal page scroll below the sticky image + action bar */}
       {showGrid && (
         <CastGrid
           labels={namedLabels}

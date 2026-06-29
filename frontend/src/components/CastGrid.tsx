@@ -28,10 +28,6 @@ function sortLabels(labels: CastLabel[]): CastLabel[] {
 
 export default function CastGrid({ labels, totalFaces, crops, highlightedId, onHighlight, token, onRename }: Props) {
   const sorted = sortLabels(labels)
-  const total = totalFaces ?? labels.length
-  const headerText = total > labels.length
-    ? `${labels.length} of ${total} named — tap a name to find them in the photo`
-    : `${labels.length} named — tap a name to find them in the photo`
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -82,21 +78,9 @@ export default function CastGrid({ labels, totalFaces, crops, highlightedId, onH
     <div
       style={{
         padding: 'var(--space-4)',
-        borderTop: '1px solid rgba(255,255,255,0.08)',
-        backgroundColor: '#111',
+        backgroundColor: '#1c1c1e',
       }}
     >
-      <p
-        style={{
-          color: 'rgba(255,255,255,0.5)',
-          fontSize: 'var(--text-sm)',
-          margin: '0 0 var(--space-3)',
-          textAlign: 'center',
-        }}
-      >
-        {headerText}
-      </p>
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
         {sorted.map((label) => {
           const isHighlighted = label.detection_id === highlightedId

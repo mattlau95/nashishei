@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { Detection, Suggestion } from '../types/detection'
 
@@ -267,12 +268,32 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
         {error && (
           <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: 'var(--space-3)' }}>{error}</p>
         )}
+
+        <Link
+          to="/"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginTop: 'var(--space-3)',
+            padding: 'var(--space-3) var(--space-5)',
+            background: 'var(--color-fill)',
+            color: 'var(--color-blue)',
+            borderRadius: 'var(--radius-pill)',
+            fontSize: 'var(--text-base)',
+            fontWeight: 600,
+            minHeight: 'var(--tap-target)',
+            textDecoration: 'none',
+          }}
+        >
+          View in your gallery
+        </Link>
       </div>
     )
   }
 
   return (
-    <div style={{ paddingBottom: 'var(--space-6)' }}>
+    <div style={{ paddingBottom: '120px' }}>
       <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-3)', lineHeight: 1.5 }}>
         Type each person's full name. Tab or Enter moves to the next face.
         Unnamed faces will be saved without a label.
@@ -284,16 +305,18 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
           {namedCount} of {sorted.length} named
         </p>
         <button
-          onClick={() => { setBulkOpen((v) => !v); setBulkInput('') }}
+          disabled
           style={{
             padding: '4px 12px',
-            background: bulkOpen ? 'var(--color-blue)' : 'transparent',
-            color: bulkOpen ? '#fff' : 'var(--color-blue)',
+            background: 'transparent',
+            color: 'var(--color-text-muted)',
             border: 'none',
             borderRadius: 'var(--radius-pill)',
-            cursor: 'pointer',
+            cursor: 'not-allowed',
             fontSize: 'var(--text-sm)',
             fontWeight: 600,
+            opacity: 0.35,
+            pointerEvents: 'none',
           }}
         >
           Paste names
@@ -435,18 +458,34 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
         })}
       </div>
 
-      {error && (
-        <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginBottom: 'var(--space-3)' }}>{error}</p>
-      )}
-
-      {/* Save button */}
-      <button
-        onClick={() => void handleSave()}
-        disabled={saving}
-        style={{ ...(saving ? disabledBtn : primaryBtn), width: '100%' }}
-      >
-        {saving ? 'Saving…' : 'Save names'}
-      </button>
+      {/* Sticky footer — named counter + save */}
+      <div style={{
+        position: 'sticky',
+        bottom: 0,
+        background: 'var(--color-bg)',
+        borderTop: '1px solid var(--color-separator)',
+        padding: 'var(--space-3) 0 var(--space-4)',
+        marginTop: 'var(--space-2)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+          <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text)' }}>
+            {namedCount} of {sorted.length} named
+          </span>
+          {namedCount === sorted.length && sorted.length > 0 && (
+            <span style={{ color: 'var(--color-blue)', fontWeight: 700 }}>✓</span>
+          )}
+        </div>
+        {error && (
+          <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', margin: `0 0 var(--space-2)` }}>{error}</p>
+        )}
+        <button
+          onClick={() => void handleSave()}
+          disabled={saving}
+          style={{ ...(saving ? disabledBtn : primaryBtn), width: '100%' }}
+        >
+          {saving ? 'Saving…' : 'Save names'}
+        </button>
+      </div>
     </div>
   )
 }

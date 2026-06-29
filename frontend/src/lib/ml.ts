@@ -1,12 +1,15 @@
 import { invoke } from '@tauri-apps/api/core'
 
+const VITE_ML_BASE = (import.meta.env.VITE_ML_BASE ?? '').replace(/\/$/, '')
+
 let _base: string | null = null
 
-// Returns the ML sidecar base URL.
-// In a Tauri build the Rust command provides it; in browser-only dev we fall back
-// to the same fixed address the sidecar binds to.
 async function getMlBase(): Promise<string> {
-  if (_base) return _base
+  if (_base !== null) return _base
+  if (VITE_ML_BASE) {
+    _base = VITE_ML_BASE
+    return _base
+  }
   try {
     _base = await invoke<string>('ml_base_url')
   } catch {

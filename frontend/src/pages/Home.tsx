@@ -11,7 +11,7 @@ type GalleryImage = { id: string; thumbnail_url: string; share_token: string | n
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_SIZE_MB = 50
 
-export default function Home() {
+export default function Home({ onLogout }: { onLogout: () => void }) {
   const [step, setStep] = useState<Step>('pick')
   const [file, setFile] = useState<File | null>(null)
   const [imageSrc, setImageSrc] = useState<string | null>(null)
@@ -70,15 +70,54 @@ export default function Home() {
     <main style={{ padding: step === 'pick' ? 'var(--space-6)' : 0 }}>
       {step === 'pick' && (
         <>
-          <h1 style={{ marginBottom: 'var(--space-2)' }}>nàshìshéi</h1>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
+            <h1 style={{ margin: 0 }}>nàshìshéi</h1>
+            <button
+              onClick={onLogout}
+              style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', cursor: 'pointer', padding: 0 }}
+            >
+              Sign out
+            </button>
+          </div>
           <p style={{ fontSize: 'var(--text-base)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-6)' }}>
             那是谁 — Put a name to every face.
           </p>
 
+          {/* Tap zone */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click() }}
+            style={{
+              border: '2px dashed var(--color-separator)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '48px 24px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 'var(--space-3)',
+              cursor: 'pointer',
+              userSelect: 'none',
+              marginBottom: galleryLoaded && gallery.length > 0 ? 'var(--space-6)' : undefined,
+            }}
+          >
+            <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden>
+              <rect width="40" height="40" rx="10" fill="var(--color-fill)"/>
+              <path d="M20 12v16M12 20h16" stroke="var(--color-blue)" strokeWidth="2.5" strokeLinecap="round"/>
+            </svg>
+            <p style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--color-blue)', margin: 0 }}>
+              {gallery.length > 0 ? 'Upload new photo' : 'Choose photo'}
+            </p>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', margin: 0 }}>
+              JPEG, PNG or WebP · up to {MAX_SIZE_MB} MB
+            </p>
+          </div>
+
           {/* Gallery of previous uploads */}
           {galleryLoaded && gallery.length > 0 && (
-            <section style={{ marginBottom: 'var(--space-6)' }}>
-              <h2 style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--color-text)', marginBottom: 'var(--space-3)', margin: `0 0 var(--space-3)` }}>
+            <section>
+              <h2 style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--color-text)', margin: `0 0 var(--space-3)` }}>
                 Your photos
               </h2>
               <div style={{
@@ -112,36 +151,6 @@ export default function Home() {
               </div>
             </section>
           )}
-
-          {/* Tap zone */}
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => fileInputRef.current?.click()}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click() }}
-            style={{
-              border: '2px dashed var(--color-separator)',
-              borderRadius: 'var(--radius-lg)',
-              padding: '48px 24px',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 'var(--space-3)',
-              cursor: 'pointer',
-              userSelect: 'none',
-            }}
-          >
-            <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden>
-              <rect width="40" height="40" rx="10" fill="var(--color-fill)"/>
-              <path d="M20 12v16M12 20h16" stroke="var(--color-blue)" strokeWidth="2.5" strokeLinecap="round"/>
-            </svg>
-            <p style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--color-blue)', margin: 0 }}>
-              {gallery.length > 0 ? 'Upload new photo' : 'Choose photo'}
-            </p>
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', margin: 0 }}>
-              JPEG, PNG or WebP · up to {MAX_SIZE_MB} MB
-            </p>
-          </div>
 
           <input
             ref={fileInputRef}
