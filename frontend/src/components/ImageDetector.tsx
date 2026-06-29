@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from 'react'
 import QCOverlay from './QCOverlay'
 import { useFaceDetection } from '../hooks/useFaceDetection'
 import { useZoomPan } from '../hooks/useZoomPan'
+import { useML } from '../contexts/MLContext'
 import type { Detection, Suggestion } from '../types/detection'
 import './ImageDetector.css'
 
@@ -25,27 +26,33 @@ const ADD_BTN_STYLE = (addMode: boolean): React.CSSProperties => ({
 export default function ImageDetector({ src, file, onConfirm }: Props) {
   const imgRef = useRef<HTMLImageElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
+  const { mlState, loadProgress } = useML()
   const { detections, setDetections, detect, detecting, error, suggestions, imageId } = useFaceDetection()
   const [addMode, setAddMode] = useState(false)
+  const [imgLoaded, setImgLoaded] = useState(false)
 
   const { scale: zoomScale, transformStyle, handlers, reset } = useZoomPan({
     containerRef: viewportRef,
     disabled: addMode,
   })
 
+  // Track image load separately from ML readiness
   useEffect(() => {
+    setImgLoaded(false)
     const img = imgRef.current
     if (!img) return
-
-    if (img.complete && img.naturalWidth > 0) {
-      void detect(img, file)
-      return
-    }
-
-    const onLoad = () => void detect(img, file)
+    if (img.complete && img.naturalWidth > 0) { setImgLoaded(true); return }
+    const onLoad = () => setImgLoaded(true)
     img.addEventListener('load', onLoad)
     return () => img.removeEventListener('load', onLoad)
-  }, [src, detect])
+  }, [src])
+
+  // Trigger detection only when both image and ML are ready
+  useEffect(() => {
+    const img = imgRef.current
+    if (!img || !imgLoaded || mlState !== 'ready') return
+    void detect(img, file)
+  }, [imgLoaded, mlState, detect, file])
 
   // Reset zoom whenever a new image is loaded
   useEffect(() => { reset() }, [src, reset])
@@ -63,7 +70,7 @@ export default function ImageDetector({ src, file, onConfirm }: Props) {
             alt="Group photo for labelling"
             style={{ display: 'block', width: '100%', height: 'auto' }}
           />
-          {detecting && (
+          {(detecting || (imgLoaded && mlState === 'loading')) && (
             <div
               style={{
                 position: 'absolute',
@@ -77,7 +84,9 @@ export default function ImageDetector({ src, file, onConfirm }: Props) {
                 letterSpacing: '0.02em',
               }}
             >
-              Detecting faces…
+              {mlState === 'loading'
+                ? `Loading face detection${loadProgress > 0 ? ` ${Math.round(loadProgress)}%` : '…'}`
+                : 'Detecting faces…'}
             </div>
           )}
           {error && (

@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback } from 'react'
 import type { Detection, Suggestion } from '../types/detection'
 import { api } from '../lib/api'
-import { mlApi } from '../lib/ml'
+import { detectAndEmbed } from '../lib/mlBrowser'
 
 type ServerDetection = {
   id: string
@@ -19,7 +19,7 @@ export function useFaceDetection() {
   const [error, setError] = useState<string | null>(null)
   const imageIdRef = useRef<string | null>(null)
 
-  const detect = useCallback(async (_img: HTMLImageElement, file: File) => {
+  const detect = useCallback(async (img: HTMLImageElement, file: File) => {
     setDetecting(true)
     setError(null)
     try {
@@ -31,43 +31,37 @@ export function useFaceDetection() {
         body: formData,
         credentials: 'include',
       })
-      if (uploadRes.status === 401) {
-        throw new Error('Not logged in — please sign in to detect faces.')
-      }
-      if (!uploadRes.ok) {
-        throw new Error(`Image upload failed (${uploadRes.status})`)
-      }
+      if (uploadRes.status === 401) throw new Error('Not logged in — please sign in.')
+      if (!uploadRes.ok) throw new Error(`Image upload failed (${uploadRes.status})`)
       const { id: imageId } = (await uploadRes.json()) as { id: string }
       imageIdRef.current = imageId
 
-      // 2. Run face detection + embedding on local ML sidecar
-      const mlForm = new FormData()
-      mlForm.append('image', file)
-      const mlRes = await mlApi('/detect-and-embed', { method: 'POST', body: mlForm })
-      if (!mlRes.ok) {
-        throw new Error(`ML sidecar error (${mlRes.status})`)
-      }
-      const { faces } = (await mlRes.json()) as {
-        faces: { bbox_x: number; bbox_y: number; bbox_w: number; bbox_h: number; embedding: number[] }[]
-      }
+      // 2. Detect landmarks + embed in-browser
+      const faces = await detectAndEmbed(img)
 
-      // 3. Submit detections + embeddings to backend for pgvector storage + suggestions
+      // 3. Submit embeddings to backend for pgvector storage + name suggestions
       const detectRes = await api(`/api/images/${imageId}/detect-client`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ faces }),
+        body: JSON.stringify({
+          faces: faces.map((f) => ({
+            bbox_x: f.bboxNorm.x,
+            bbox_y: f.bboxNorm.y,
+            bbox_w: f.bboxNorm.w,
+            bbox_h: f.bboxNorm.h,
+            embedding: f.embedding,
+          })),
+        }),
       })
-      if (!detectRes.ok) {
-        throw new Error(`Failed to save detections (${detectRes.status})`)
-      }
-      const detectData = (await detectRes.json()) as {
+      if (!detectRes.ok) throw new Error(`Failed to save detections (${detectRes.status})`)
+      const { detections: serverDets, suggestions: serverSuggestions } = (await detectRes.json()) as {
         detections: ServerDetection[]
         suggestions: Suggestion[]
       }
 
       setDetections(
-        detectData.detections.map((d) => ({
+        serverDets.map((d) => ({
           id: d.id,
           bbox_x: d.bbox_x,
           bbox_y: d.bbox_y,
@@ -76,7 +70,7 @@ export function useFaceDetection() {
           source: 'server' as const,
         })),
       )
-      setSuggestions(detectData.suggestions ?? [])
+      setSuggestions(serverSuggestions ?? [])
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('face detection failed:', err)
@@ -86,13 +80,5 @@ export function useFaceDetection() {
     }
   }, [])
 
-  return {
-    detections,
-    setDetections,
-    detect,
-    detecting,
-    error,
-    suggestions,
-    imageId: imageIdRef.current,
-  }
+  return { detections, setDetections, detect, detecting, error, suggestions, imageId: imageIdRef.current }
 }

@@ -12,8 +12,12 @@ dist
 dist-ssr
 *.local
 
-# MediaPipe WASM files (copied from node_modules at install time)
+# WASM files copied from node_modules at install time
 public/mediapipe-wasm/
+public/ort/
+
+# ML model binaries (copy from ~/.insightface/models/buffalo_l/)
+public/models/
 
 # Tauri build artifacts
 src-tauri/target/

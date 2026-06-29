@@ -8,17 +8,17 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "copy-wasm":"node -e \"const fs=require('fs');fs.mkdirSync('public/ort',{recursive:true});fs.readdirSync('node_modules/onnxruntime-web/dist').filter(f=>f.endsWith('.wasm')).forEach(f=>fs.copyFileSync('node_modules/onnxruntime-web/dist/'+f,'public/ort/'+f))\""
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.1",
+    "@mediapipe/tasks-vision": "^0.10.35",
+    "onnxruntime-web": "^1.27.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.18.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@tauri-apps/cli": "^2.11.3",
     "@types/node": "^24.12.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

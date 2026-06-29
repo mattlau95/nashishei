@@ -3,6 +3,7 @@ import { api } from '../lib/api'
 import { Link } from 'react-router-dom'
 import ImageDetector from '../components/ImageDetector'
 import FaceNameList from '../components/FaceNameList'
+import { useML } from '../contexts/MLContext'
 import type { Detection, Suggestion } from '../types/detection'
 
 type Step = 'pick' | 'qc' | 'name'
@@ -12,6 +13,7 @@ const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_SIZE_MB = 50
 
 export default function Home({ onLogout }: { onLogout: () => void }) {
+  const { mlState, loadProgress } = useML()
   const [step, setStep] = useState<Step>('pick')
   const [file, setFile] = useState<File | null>(null)
   const [imageSrc, setImageSrc] = useState<string | null>(null)
@@ -159,6 +161,17 @@ export default function Home({ onLogout }: { onLogout: () => void }) {
             onChange={handleFileChange}
             style={{ display: 'none' }}
           />
+
+          {mlState === 'loading' && (
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 'var(--space-3)' }}>
+              Preparing face detection{loadProgress > 0 ? ` · ${Math.round(loadProgress)}%` : '…'}
+            </p>
+          )}
+          {mlState === 'error' && (
+            <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: 'var(--space-3)' }}>
+              Face detection failed to load. Refresh to retry.
+            </p>
+          )}
 
           {pickError && (
             <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: 'var(--space-3)' }}>

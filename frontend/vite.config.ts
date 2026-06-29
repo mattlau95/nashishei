@@ -7,9 +7,16 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    optimizeDeps: {
+      exclude: ['onnxruntime-web'],
+    },
     server: {
       port: 5173,
       strictPort: true,
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'credentialless',
+      },
       proxy: {
         '/api': {
           target: apiBase,
@@ -18,10 +25,7 @@ export default defineConfig(({ mode }) => {
         '/files': {
           target: apiBase,
         },
-        '/ml-sidecar': {
-          target: 'http://localhost:8000',
-          rewrite: (path) => path.replace(/^\/ml-sidecar/, ''),
-        },
+
       },
     },
   }

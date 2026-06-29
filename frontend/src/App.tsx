@@ -3,6 +3,8 @@ import { Routes, Route } from 'react-router-dom'
 import Home from './pages/Home'
 import Viewer from './pages/Viewer'
 import AuthPage from './pages/AuthPage'
+import ArcFaceSpike from './pages/ArcFaceSpike'
+import { MLProvider } from './contexts/MLContext'
 import { api } from './lib/api'
 
 function AuthGate() {
@@ -45,9 +47,12 @@ function AuthGate() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<AuthGate />} />
-      <Route path="/s/:token" element={<Viewer />} />
-    </Routes>
+    <MLProvider>
+      <Routes>
+        <Route path="/" element={<AuthGate />} />
+        <Route path="/s/:token" element={<Viewer />} />
+        <Route path="/spike" element={<ArcFaceSpike />} />
+      </Routes>
+    </MLProvider>
   )
 }
