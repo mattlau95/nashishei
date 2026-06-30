@@ -521,3 +521,34 @@
 * Add file organization (delete + management) to "Your Photos" gallery section (INBOX)
 
 ---
+
+## 2026-06-30 — "Saved!" screen revamp + unknowns-first sort (MAT-529, MAT-528)
+
+**Session Goal:** Auto-generate the share link on save, show a photo thumbnail on the done screen, center the gallery button, and sort unrecognized faces to the top of the naming list.
+**Status:** Completed ✅
+
+### The "Why" (Decision Log)
+
+* **Auto-share by passing `resolvedImageId` as a param over relying on `savedImageId` state:** `setSavedImageId` and `setDone` are batched React updates — `handleShare` can't read `savedImageId` until the batch flushes. Adding an optional `id` param to `handleShare` and calling it with the local `resolvedImageId` bypasses the batch entirely.
+
+* **Share fires as `void` fire-and-forget over `await` inside `handleSave`:** Blocking `setDone(true)` on a network call that isn't part of the core save would delay the "Saved!" screen. Errors surface via `setError` inline on the done screen — losing a share link is far less bad than appearing to stall on save.
+
+* **"Share Photo" button removed (no fallback) over keeping it:** Once share is auto-generated, a button that triggers the same action is redundant and confusing. The `sharing ? "Generating link…" : shareUrl ? <row> : null` pattern shows loading state then result — the correct pattern for an auto-fired async action.
+
+* **Unknowns-first sort by passing `suggestionMap` into `sortedDetections` over re-deriving inside the function:** `suggestionMap` was already built at the top of the component; moving its declaration one line above `sorted` gave the sort function the prebuilt `O(1)` lookup with no extra work per comparison.
+
+### Technical Notes
+
+* `handleShare(id?: string)` — `imageId` resolves to `id ?? savedImageId`; called with `resolvedImageId` inside `handleSave` after `setDone(true)`.
+* Done screen: `<img src={imgSrc} style={{ width:120, height:120, objectFit:'cover', borderRadius:'var(--radius-md)' }}>` above the "Saved!" heading. Size is a default, not a deliberate pick.
+* "View in your gallery" button wrapped in `<div style={{ display:'flex', justifyContent:'center' }}>` — `textAlign:'center'` on the parent doesn't centre flex containers, explicit wrapper required.
+* `sortedDetections(dets, suggestionMap)` — sort key: `(aKnown - bKnown) || (bbox_y diff) || (bbox_x diff)` where `Known = suggestionMap[id]?.display_name ? 1 : 0`. `suggestionMap` declaration moved above `sorted` (was one line below).
+* `tsc --noEmit` passes clean on both changes.
+
+### Next Session
+
+* Tapping thumbnail on "Saved!" should navigate to image view (same as "View in your gallery") — INBOX
+* Portrait image view: "Browse/Edit Names" sticky sometimes hidden when photo is taller than viewport — INBOX, needs a feasible fix
+* Delete original `det_10g.onnx` + `w600k_r50.onnx` (182 MB) from `public/models/` once WebGPU confirmed stable with no WASM fallback in console
+
+---
