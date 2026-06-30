@@ -583,3 +583,34 @@
 * Follow up on the new INBOX item: plan for deploying outside Docker/npm-localhost.
 
 ---
+
+## 2026-06-30 — UX audit + ML-loading fix (MAT-531)
+
+**Session Goal:** Run a UX audit, turn the findings into tracked tickets, and fix the highest-priority finding — ML models downloading on every route regardless of need.
+**Status:** Completed ✅ — MAT-531 implemented, verified via Lighthouse and user end-to-end click-through (logout → hard refresh → sign in → upload → detect, confirmed working).
+
+### The "Why" (Decision Log)
+
+* **`React.lazy()` + `Suspense` over the originally-planned "just move `<MLProvider>` down the tree" fix:** the JSX-level fix was implemented first and reduced page weight (217MB→4.6MB) but Lighthouse re-verification showed LCP/FCP barely moved (still ~26s/~14s). Root cause: ES module `import` statements are fetched based on the *static* import graph, not on whether the imported component ever renders — `App.tsx` still statically imported `Home`, which pulls in `onnxruntime-web` transitively. Only a dynamic `import()` boundary actually defers the fetch.
+* **Lazy-loading `ArcFaceSpike` too, not just `Home`:** after the `Home` fix, `ort.bundle.min.mjs` (2.4MB) was *still* appearing in the network panel on `/`. Traced to a second, independent static import chain: `App.tsx` → `ArcFaceSpike.tsx` → `lib/arcfaceSpike.ts`, which has its own `import * as ort from 'onnxruntime-web'`. Both chains needed breaking, not just the one the ticket explicitly named.
+* **`MLProvider` relocated into `Home.tsx` rather than left in `App.tsx` wrapping a lazy `<Home>`:** if the `MLProvider` import stayed in `App.tsx`, that import alone would still pull in `mlBrowser.ts`/`onnxruntime-web` statically, defeating the point. Moving it inside `Home.tsx` (new outer `Home` wraps the renamed `HomeContent` in `<MLProvider>`) means `App.tsx` has zero static reference to any ML-related module.
+* **Residual ~11s dev-server LCP tracked as a separate ticket (MAT-538) over folding it into MAT-531 or dismissing it outright:** after the fix, `/` still measured ~11s LCP on Lighthouse despite zero ML-related network requests — the remaining weight is unminified Vite dev-server framework code (`react-dom`, `react-router-dom`, `@vite/client`, `@react-refresh`). Presumed to be dev-server-only noise that won't appear in a production build, but unverified — user chose to track it separately rather than assume or block on it.
+
+### Technical Notes
+
+* Ran `/audit` against the running dev server (`localhost:5173`, login page) plus a source review of the naming/QC/viewer flows; wrote `audit-2026-06-30.md` (4 P0, 3 P1, 3 P2 findings).
+* Created 7 Linear tickets (MAT-531–MAT-537) from the audit, combining the three accessible-label findings into MAT-533 and the two naming/QC polish findings into MAT-537 (per "combine some if they are similar"). Created a follow-up 8th ticket, MAT-538, for the dev-vs-prod LCP verification.
+* `frontend/src/App.tsx` — removed static imports of `Home`, `ArcFaceSpike`, and `MLProvider`; added `const Home = lazy(() => import('./pages/Home'))` and `const ArcFaceSpike = lazy(() => import('./pages/ArcFaceSpike'))`, each call site wrapped in `<Suspense fallback={null}>`.
+* `frontend/src/pages/Home.tsx` — original `Home` function renamed to `HomeContent`; new default-export `Home` wraps it in `<MLProvider>`.
+* Verified via three Lighthouse runs against `/`: total page weight 217,628 KiB → 1,753 KiB; LCP 26.0s → ~11s; FCP 13.9s → ~6.4s; zero `.onnx`/`onnxruntime-web`/mediapipe requests in the network panel (previously the single largest payload item).
+* `tsc --noEmit` clean; `/spike` and `/s/:token` confirmed still returning 200 after the lazy-load restructure.
+* MAT-531 marked Done in Linear; MAT-538 filed as a Low-priority follow-up.
+
+### Next Session
+
+* MAT-532–MAT-537 still open in Backlog (color contrast token, accessible labels, naming-flow data-loss protection, `prefers-reduced-motion`, raw error messages, naming/QC polish) — next highest-priority pick is likely MAT-532 or MAT-533 (both Quick Win, both P0).
+* MAT-538: production-build (`vite build && vite preview`) Lighthouse run to confirm the residual ~11s LCP is dev-only noise.
+* MAT-530's manual verification checklist (DB cascade, storage cleanup, repeat-delete 404, cross-account 404) — not explicitly re-confirmed this session; still open from the 2026-06-30 MAT-530 entry.
+* Still pending from prior sessions: delete original `det_10g.onnx` + `w600k_r50.onnx` (182MB) from `frontend/public/models/` once WebGPU confirmed stable.
+
+---

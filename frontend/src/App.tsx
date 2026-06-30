@@ -1,11 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { Routes, Route } from 'react-router-dom'
-import Home from './pages/Home'
 import Viewer from './pages/Viewer'
 import AuthPage from './pages/AuthPage'
-import ArcFaceSpike from './pages/ArcFaceSpike'
-import { MLProvider } from './contexts/MLContext'
 import { api } from './lib/api'
+
+// Lazy: both pull in onnxruntime-web (Home via mlBrowser.ts, ArcFaceSpike via its own
+// arcfaceSpike.ts). A static import here would fetch that whole chain on every route,
+// including the unauthenticated login screen — see MAT-531.
+const Home = lazy(() => import('./pages/Home'))
+const ArcFaceSpike = lazy(() => import('./pages/ArcFaceSpike'))
 
 function AuthGate() {
   const [authed, setAuthed] = useState(() => localStorage.getItem('authed') === '1')
@@ -42,17 +45,19 @@ function AuthGate() {
   if (checking) return null
 
   if (!authed) return <AuthPage onAuthed={() => setAuthed(true)} />
-  return <Home onLogout={logout} />
+  return (
+    <Suspense fallback={null}>
+      <Home onLogout={logout} />
+    </Suspense>
+  )
 }
 
 export default function App() {
   return (
-    <MLProvider>
-      <Routes>
-        <Route path="/" element={<AuthGate />} />
-        <Route path="/s/:token" element={<Viewer />} />
-        <Route path="/spike" element={<ArcFaceSpike />} />
-      </Routes>
-    </MLProvider>
+    <Routes>
+      <Route path="/" element={<AuthGate />} />
+      <Route path="/s/:token" element={<Viewer />} />
+      <Route path="/spike" element={<Suspense fallback={null}><ArcFaceSpike /></Suspense>} />
+    </Routes>
   )
 }

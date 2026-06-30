@@ -3,7 +3,7 @@ import { api } from '../lib/api'
 import { Link } from 'react-router-dom'
 import ImageDetector from '../components/ImageDetector'
 import FaceNameList from '../components/FaceNameList'
-import { useML } from '../contexts/MLContext'
+import { MLProvider, useML } from '../contexts/MLContext'
 import type { Detection, Suggestion } from '../types/detection'
 
 type Step = 'pick' | 'qc' | 'name'
@@ -12,7 +12,17 @@ type GalleryImage = { id: string; thumbnail_url: string; share_token: string | n
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_SIZE_MB = 50
 
-export default function Home({ onLogout }: { onLogout: () => void }) {
+// MLProvider lives here (not in App.tsx) so its onnxruntime-web import chain is only
+// fetched once this module is dynamically loaded — never on the login/viewer routes.
+export default function Home(props: { onLogout: () => void }) {
+  return (
+    <MLProvider>
+      <HomeContent {...props} />
+    </MLProvider>
+  )
+}
+
+function HomeContent({ onLogout }: { onLogout: () => void }) {
   const { mlState, loadProgress, mlError } = useML()
   const [step, setStep] = useState<Step>('pick')
   const [file, setFile] = useState<File | null>(null)
