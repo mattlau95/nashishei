@@ -23,6 +23,8 @@ export default function Home({ onLogout }: { onLogout: () => void }) {
   const [pickError, setPickError] = useState<string | null>(null)
   const [gallery, setGallery] = useState<GalleryImage[]>([])
   const [galleryLoaded, setGalleryLoaded] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [galleryError, setGalleryError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -32,6 +34,24 @@ export default function Home({ onLogout }: { onLogout: () => void }) {
       .then((items: GalleryImage[]) => { setGallery(items); setGalleryLoaded(true) })
       .catch(() => setGalleryLoaded(true))
   }, [step])
+
+  async function handleDelete(id: string) {
+    if (!window.confirm('Delete this photo? This cannot be undone.')) return
+    setGalleryError(null)
+    setDeletingId(id)
+    try {
+      const res = await api(`/api/images/${id}`, { method: 'DELETE', credentials: 'include' })
+      if (res.ok || res.status === 404) {
+        setGallery((g) => g.filter((img) => img.id !== id))
+      } else {
+        setGalleryError('Could not delete photo — please try again.')
+      }
+    } catch {
+      setGalleryError('Could not delete photo — please try again.')
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -142,16 +162,57 @@ export default function Home({ onLogout }: { onLogout: () => void }) {
                       />
                     </div>
                   )
-                  return img.share_token ? (
-                    <Link key={img.id} to={`/s/${img.share_token}`} style={{ display: 'block', textDecoration: 'none' }}>
-                      {thumb}
-                    </Link>
-                  ) : (
-                    <div key={img.id} style={{ opacity: 0.55 }}>{thumb}</div>
+                  return (
+                    <div key={img.id} style={{ position: 'relative' }}>
+                      {img.share_token ? (
+                        <Link to={`/s/${img.share_token}`} style={{ display: 'block', textDecoration: 'none' }}>
+                          {thumb}
+                        </Link>
+                      ) : (
+                        <div style={{ opacity: 0.55 }}>{thumb}</div>
+                      )}
+                      <button
+                        type="button"
+                        aria-label="Delete photo"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(img.id) }}
+                        disabled={deletingId === img.id}
+                        style={{
+                          position: 'absolute',
+                          top: 'var(--space-2)',
+                          right: 'var(--space-2)',
+                          width: 28,
+                          height: 28,
+                          borderRadius: '50%',
+                          border: 'none',
+                          background: 'rgba(0, 0, 0, 0.55)',
+                          color: '#fff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: deletingId === img.id ? 'default' : 'pointer',
+                          opacity: deletingId === img.id ? 0.5 : 1,
+                          padding: 0,
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <path d="M3 6h18" />
+                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                        </svg>
+                      </button>
+                    </div>
                   )
                 })}
               </div>
             </section>
+          )}
+
+          {galleryError && (
+            <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: 'var(--space-3)' }}>
+              {galleryError}
+            </p>
           )}
 
           <input

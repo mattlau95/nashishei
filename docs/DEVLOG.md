@@ -552,3 +552,34 @@
 * Delete original `det_10g.onnx` + `w600k_r50.onnx` (182 MB) from `public/models/` once WebGPU confirmed stable with no WASM fallback in console
 
 ---
+
+## 2026-06-30 — Photo delete (MAT-530) + UI polish
+
+**Session Goal:** Add a delete action to the "Your Photos" gallery — `DELETE /api/images/:id` endpoint plus a per-thumbnail delete control on the Home screen.
+**Status:** Partially Completed — implementation done, builds clean (`go build ./...`, `tsc --noEmit`); manual end-to-end verification (DB cascade, storage cleanup, 404-on-redelete, cross-account check) not yet run this session.
+
+### The "Why" (Decision Log)
+
+* **Native `window.confirm()` over a custom modal/dialog component:** confirmed directly with the user during planning — no modal/toast infrastructure exists anywhere in the frontend yet, and building one was out of scope for a minimal delete action.
+* **Hard `DELETE FROM images ...` relying on existing FK cascade over a manual multi-table delete/transaction:** `detections.image_id` and `tags.detection_id` already have `ON DELETE CASCADE` in `db/migrations/001_initial.sql`. One statement removes the image, its detections, and its tags; `persons` rows are untouched since they're account-scoped, not image-scoped.
+* **Treat a `404` from the delete call as success client-side, not an error:** if the image is already gone (e.g. deleted from another tab/device), the end state the user wants — photo absent from the gallery — is already true. Surfacing an error here would be misleading.
+* **DB row deleted first, file cleanup best-effort/non-fatal after:** mirrors the existing "DB row before file write" ordering in `UploadImage`. The DB is the source of truth; a failed `os.RemoveAll` is logged via `slog.Error` but doesn't fail the request, avoiding an orphaned-but-still-referenced row if disk cleanup hiccups.
+* **Delete button rendered as a sibling of the `Link`/dimmed-div thumb wrapper, not nested inside it:** avoids an invalid nested-`<a>` and any click-bubbling-into-navigation issue, at the cost of needing `position: relative`/`absolute` for placement instead of simple nesting.
+* **Trash-can icon over the original X icon:** swapped after the fact at the user's request — X read as "dismiss/cancel" rather than "delete."
+
+### Technical Notes
+
+* `api/internal/storage/local.go` — added `DeleteAll(accountID, imageID string) error` (`os.RemoveAll` on the per-image directory; naturally idempotent on a missing dir).
+* `api/internal/handler/images.go` — added `DeleteImage(db, store)` handler: `DELETE FROM images WHERE id=$1 AND account_id=$2 RETURNING storage_key`, 404 on no match, best-effort `store.DeleteAll` + `slog.Error` on file-cleanup failure. Added `log/slog` import.
+* `api/cmd/api/main.go` — registered `r.Delete("/images/{id}", handler.DeleteImage(pool, store))` next to the other `/images/{id}` routes. CORS already allowed `DELETE`, no change needed.
+* `frontend/src/pages/Home.tsx` — added `deletingId`/`galleryError` state and `handleDelete(id)`; restructured each gallery cell into a `position: relative` wrapper holding the existing thumb plus an absolutely-positioned circular delete button (trash-can SVG, 24×24 viewBox, Feather-style), disabled mid-request via `deletingId`.
+* No DB migration required — cascade behavior already existed in schema.
+* `docs/INBOX.md` also changed this session (two resolved items removed, one new item added about deploying outside Docker/npm-localhost).
+
+### Next Session
+
+* Run manual verification: confirm dialog → accept/cancel, grid updates immediately, Postgres row + cascaded detections/tags gone, storage directory removed, repeat-delete returns 404 not 500, cross-account delete attempt 404s.
+* Delete original `det_10g.onnx` + `w600k_r50.onnx` (182 MB) from `frontend/public/models/` once WebGPU confirmed stable with no WASM fallback (still pending from two prior sessions).
+* Follow up on the new INBOX item: plan for deploying outside Docker/npm-localhost.
+
+---

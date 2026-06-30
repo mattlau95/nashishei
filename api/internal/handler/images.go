@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/disintegration/imaging"
@@ -179,6 +180,29 @@ func ListImages(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(items)
+	}
+}
+
+func DeleteImage(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		imageID := chi.URLParam(r, "id")
+		accountID := middleware.AccountID(r.Context())
+
+		var storageKey string
+		err := db.QueryRow(r.Context(),
+			`DELETE FROM images WHERE id = $1 AND account_id = $2 RETURNING storage_key`,
+			imageID, accountID,
+		).Scan(&storageKey)
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		if err := store.DeleteAll(accountID, imageID); err != nil {
+			slog.Error("failed to delete image files", "image_id", imageID, "err", err)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

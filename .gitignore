@@ -16,7 +16,8 @@ ml/.venv/
 ml/*.pyc
 
 # Storage (local uploads)
-storage/
+/storage/
+/api/storage/
 
 # OS
 .DS_Store
