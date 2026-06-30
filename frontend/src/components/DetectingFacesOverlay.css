@@ -1,0 +1,67 @@
+.df-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--color-scrim);
+}
+
+/* Full-width tracker animated via transform (compositor-only) so the sweep
+   keeps moving even while the main thread is busy running WASM inference —
+   animating `left` directly stalls mid-sweep under that load. */
+.df-sweep {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+  animation: dfSweep 2.2s ease-in-out infinite;
+}
+
+.df-sweep::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.15), #fff 16%, #fff 84%, rgba(255,255,255,0.15));
+  box-shadow: 0 0 16px 2px rgba(255,255,255,0.5), 0 0 28px 6px rgba(250,220,0,0.35);
+}
+
+@keyframes dfSweep {
+  0%   { transform: translateX(4%); }
+  50%  { transform: translateX(96%); }
+  100% { transform: translateX(4%); }
+}
+
+.df-badge {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-overlay-label);
+  border-radius: var(--radius-md);
+  color: #fff;
+  font-size: var(--text-base);
+  letter-spacing: 0.02em;
+}
+
+.df-spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255,255,255,0.25);
+  border-top-color: var(--color-accent);
+  animation: dfSpin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.df-spinner--static {
+  animation: none;
+}
+
+@keyframes dfSpin {
+  to { transform: rotate(360deg); }
+}

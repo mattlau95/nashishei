@@ -655,3 +655,32 @@
 * Still pending from prior sessions: delete original `det_10g.onnx` + `w600k_r50.onnx` (182MB) from `frontend/public/models/` once WebGPU confirmed stable; MAT-530's manual delete-verification checklist.
 
 ---
+
+## 2026-06-30 — Face detection loading animation (MAT-512)
+
+**Session Goal:** Import the "Detecting Faces.dc.html" Claude Design mockup for MAT-512 and implement it as the loading state during `detect`, then extend it to a real lock-in reveal animation once results return.
+**Status:** Completed ✅ — implementation done, `tsc --noEmit` clean, visually verified via a throwaway Playwright harness (not the real upload→detect pipeline).
+
+### The "Why" (Decision Log)
+
+* **Adapted the mockup's visual language rather than porting it verbatim:** the Claude Design file (`face-detect.jsx`) was built for the now-removed Tauri/ML-sidecar architecture and a dark standalone-demo theme (its own face-api.js detection, file upload, sample image). The app now does in-browser ONNX detection via `useFaceDetection`/`MLContext` and uses a light iOS palette (`tokens.css`) with strict accent-contrast rules from the MAT-532/533 a11y pass (never white text on the yellow accent). Rebuilt the spinner/sweep/bracket-lock treatment against real tokens instead of carrying over the mockup's hardcoded dark colors.
+* **`transform: translateX()` over animating `left` for the waiting-state sweep:** found by inspection after the sweep was reported visually freezing ~15% across the image during real detection. `left` is a layout-triggering CSS property that animates on the main thread; `onnxruntime-web`'s detection inference runs single-threaded WASM (`ort.env.wasm.numThreads = 1`) on that same thread, so the sweep stalled wherever it happened to be when inference started. Switching to `transform` hands the animation to the compositor thread, decoupling it from main-thread JS load. Verified via two harness screenshots at the same wait-time before/after the fix.
+* **One-shot "lock-in" reveal over animation tied to true inference progress, when asked to make the animation "actually dynamic":** real per-step progress isn't available — detection runs as one atomic `session.run()` call with no intermediate hook. Instead replicated what the original mockup itself actually did (despite looking live): `detectAllFaces` returns all faces in one call, then a fixed-duration sweep plays over the *already-known* positions, locking each bracket as the line crosses it. Implemented the same pattern (`FaceLockSweep.tsx`) against real detection results, ending in a held "N faces detected" label.
+* **Two separate components (`DetectingFacesOverlay` vs `FaceLockSweep`) over one shared component:** their timing models are fundamentally different. The waiting-state sweep must survive main-thread blocking, so it's pure CSS keyframes looping indefinitely with no JS driving it. The lock-in reveal runs only *after* detection finishes (no contention), so it's free to use `requestAnimationFrame` + React state to bind the sweep position to real face bbox data — something a CSS keyframe can't do.
+* **`wasDetectingRef` transition-detection inside `ImageDetector.tsx` over adding new phase state to `useFaceDetection`:** kept the hook's existing `detecting` boolean contract untouched; the reveal sequencing (detecting→locking→idle) is purely a presentation concern, so it lives in the component that already owns `addMode`/`imgLoaded` local state rather than spreading phase logic into the data-fetching hook.
+
+### Technical Notes
+
+* New: `frontend/src/components/DetectingFacesOverlay.tsx`/`.css` (looping wait-state: spinner + sweep + animated-dots label, gated by `usePrefersReducedMotion` matching the `SpotlightPlayer.tsx` convention) and `FaceLockSweep.tsx`/`.css` (one-shot 900ms sweep + 450ms hold over real `Detection[]` bboxes, same reduced-motion gating — jumps straight to all-locked + label).
+* `ImageDetector.tsx` — added `locking` state + `wasDetectingRef`; swaps `QCOverlay` for `FaceLockSweep` while `locking` is true; sticky action bar gated on `!detecting && !locking`.
+* Verified rendering via a temporary `frontend/harness.html` + `src/harness-entry.tsx` (not committed, deleted after use) driven by `npx playwright screenshot` — `chromium-cli` wasn't available in this environment, so used the Playwright CLI directly. Confirmed: waiting-state sweep keeps moving under simulated main-thread delay, lock-in sweep locks boxes progressively and shows "3 faces detected" before handoff.
+* `docs/INBOX.md` also has an unrelated `/capture` note appended this session ("Saved!" screen gallery-button/thumbnail routing) — the append landed without a newline before it, merging onto the previous bullet's line; cosmetic, not yet fixed.
+
+### Next Session
+
+* Verify the lock-in animation against the real upload→detect pipeline in the browser (only verified this session against a mocked `Detection[]` in an isolated harness).
+* Toggle OS-level "reduce motion" and confirm both new components skip their animations (same unverified gap noted for MAT-535 last session).
+* Fix the missing-newline glitch in `docs/INBOX.md` from this session's `/capture` append.
+* Still pending from prior sessions: MAT-534/537/538 (naming-flow data-loss protection, naming/QC polish, prod-build LCP verification); delete original `det_10g.onnx`/`w600k_r50.onnx` (182MB) once WebGPU confirmed stable; MAT-530's manual delete-verification checklist.
+
+---

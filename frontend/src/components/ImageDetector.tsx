@@ -1,5 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import QCOverlay from './QCOverlay'
+import DetectingFacesOverlay from './DetectingFacesOverlay'
+import FaceLockSweep from './FaceLockSweep'
 import { useFaceDetection } from '../hooks/useFaceDetection'
 import { useZoomPan } from '../hooks/useZoomPan'
 import { useML } from '../contexts/MLContext'
@@ -30,6 +32,8 @@ export default function ImageDetector({ src, file, onConfirm }: Props) {
   const { detections, setDetections, detect, detecting, error, suggestions, imageId } = useFaceDetection()
   const [addMode, setAddMode] = useState(false)
   const [imgLoaded, setImgLoaded] = useState(false)
+  const [locking, setLocking] = useState(false)
+  const wasDetectingRef = useRef(false)
 
   const { scale: zoomScale, transformStyle, handlers, reset } = useZoomPan({
     containerRef: viewportRef,
@@ -57,6 +61,14 @@ export default function ImageDetector({ src, file, onConfirm }: Props) {
   // Reset zoom whenever a new image is loaded
   useEffect(() => { reset() }, [src, reset])
 
+  // Play the lock-in sweep once a detect pass finishes with at least one face
+  useEffect(() => {
+    if (wasDetectingRef.current && !detecting && detections.length > 0) {
+      setLocking(true)
+    }
+    wasDetectingRef.current = detecting
+  }, [detecting, detections.length])
+
   return (
     <div className="qc-layout">
       <div className="qc-viewport" ref={viewportRef}>
@@ -71,23 +83,10 @@ export default function ImageDetector({ src, file, onConfirm }: Props) {
             style={{ display: 'block', width: '100%', height: 'auto' }}
           />
           {(detecting || (imgLoaded && mlState === 'loading')) && (
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'var(--color-scrim)',
-                color: '#fff',
-                fontSize: 'var(--text-base)',
-                letterSpacing: '0.02em',
-              }}
-            >
-              {mlState === 'loading'
-                ? `Loading face detection${loadProgress > 0 ? ` ${Math.round(loadProgress)}%` : '…'}`
-                : 'Detecting faces…'}
-            </div>
+            <DetectingFacesOverlay
+              label={mlState === 'loading' ? 'Loading face detection' : 'Detecting faces'}
+              progress={mlState === 'loading' ? loadProgress : undefined}
+            />
           )}
           {error && (
             <div
@@ -105,16 +104,20 @@ export default function ImageDetector({ src, file, onConfirm }: Props) {
               {error}
             </div>
           )}
-          <QCOverlay
-            detections={detections}
-            setDetections={setDetections}
-            addMode={addMode}
-            scale={zoomScale}
-          />
+          {locking ? (
+            <FaceLockSweep faces={detections} onDone={() => setLocking(false)} />
+          ) : (
+            <QCOverlay
+              detections={detections}
+              setDetections={setDetections}
+              addMode={addMode}
+              scale={zoomScale}
+            />
+          )}
         </div>
       </div>
 
-      {!detecting && (
+      {!detecting && !locking && (
         <div className="qc-sticky-bar">
           <button onClick={() => setAddMode((v) => !v)} style={ADD_BTN_STYLE(addMode)}>
             {addMode ? 'Cancel' : '+ Add face'}
