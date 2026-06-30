@@ -5,7 +5,7 @@
  *   --color-text        #1c1c1e  on white → 17.1:1  AAA ✅
  *   --color-text-muted  rgba(60,60,67,.6) on white → ~5.9:1  AA ✅
  *   --color-error       #ff3b30  on white → 4.5:1   AA ✅
- *   --color-blue        #007AFF  on white → 4.6:1   AA ✅
+ *   --color-blue        #0072ef  on white → 4.51:1  AA ✅
  *
  * ⚠️ ACCENT USAGE RULES (yellow — 1.37:1 on white):
  *   • Text ON accent: use --color-text ONLY. NEVER white.
@@ -25,7 +25,7 @@
   --color-text:               #1c1c1e;       /* iOS dark label */
   --color-text-muted:         rgba(60,60,67,0.6);     /* iOS secondary label */
 
-  --color-blue:               #007AFF;       /* iOS system blue — links, primary CTAs */
+  --color-blue:               #0072ef;       /* iOS system blue (darkened for AA contrast) — links, primary CTAs */
   --color-accent:             #fadc00;       /* brand yellow — bbox outlines, handles */
   --color-accent-tint:        rgba(250,220,0,0.09);
   --color-accent-tint-border: rgba(250,220,0,0.35);

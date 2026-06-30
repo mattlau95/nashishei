@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
+import { FriendlyError, toUserMessage } from '../lib/errorMessages'
 import type { Detection, Suggestion } from '../types/detection'
 
 type Props = {
@@ -118,8 +119,8 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
         const formData = new FormData()
         formData.append('image', file)
         const imgRes = await api('/api/images', { method: 'POST', body: formData, credentials: 'include' })
-        if (imgRes.status === 401) throw new Error('Not logged in — please sign in to save.')
-        if (!imgRes.ok) throw new Error(`Image upload failed (${imgRes.status})`)
+        if (imgRes.status === 401) throw new FriendlyError('Not logged in — please sign in to save.')
+        if (!imgRes.ok) throw new FriendlyError("Couldn't upload your photo — try again.")
         const imgData = (await imgRes.json()) as { id: string }
         resolvedImageId = imgData.id
 
@@ -138,7 +139,7 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
             })),
           }),
         })
-        if (!batchRes.ok) throw new Error(`Failed to save detections (${batchRes.status})`)
+        if (!batchRes.ok) throw new FriendlyError("Couldn't save the detected faces — try again.")
         const batchData = (await batchRes.json()) as { detections: SavedDetection[] }
         savedDets = batchData.detections
       }
@@ -155,7 +156,7 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
           credentials: 'include',
           body: JSON.stringify({ display_name: name }),
         })
-        if (!personRes.ok) throw new Error(`Failed to create person "${name}" (${personRes.status})`)
+        if (!personRes.ok) throw new FriendlyError(`Couldn't save the name "${name}" — try again.`)
         const personData = (await personRes.json()) as { id: string }
 
         const tagRes = await api('/api/tags', {
@@ -164,14 +165,14 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
           credentials: 'include',
           body: JSON.stringify({ detection_id: detId, person_id: personData.id, status: 'confirmed' }),
         })
-        if (!tagRes.ok) throw new Error(`Failed to tag "${name}" (${tagRes.status})`)
+        if (!tagRes.ok) throw new FriendlyError(`Couldn't save the name "${name}" — try again.`)
       }
 
       setSavedImageId(resolvedImageId)
       setDone(true)
       void handleShare(resolvedImageId)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      setError(toUserMessage(err, 'Could not save — try again.'))
     } finally {
       setSaving(false)
     }

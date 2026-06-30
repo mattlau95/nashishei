@@ -102,7 +102,7 @@ export default function ImageDetector({ src, file, onConfirm }: Props) {
                 fontSize: 'var(--text-sm)',
               }}
             >
-              Detection error: {error}
+              {error}
             </div>
           )}
           <QCOverlay

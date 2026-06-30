@@ -3,6 +3,18 @@ import { api } from '../lib/api'
 
 type Props = { onAuthed: () => void }
 
+const srOnly: React.CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: 'hidden',
+  clip: 'rect(0, 0, 0, 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+}
+
 export default function AuthPage({ onAuthed }: Props) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
@@ -23,7 +35,12 @@ export default function AuthPage({ onAuthed }: Props) {
       })
       if (!res.ok) {
         const text = await res.text()
-        setError(text.trim() || `${mode} failed`)
+        console.error(`${mode} failed:`, text)
+        setError(
+          mode === 'login'
+            ? 'Could not sign in — check your email and password.'
+            : 'Could not create account — try again.',
+        )
         return
       }
       localStorage.setItem('authed', '1')
@@ -62,7 +79,9 @@ export default function AuthPage({ onAuthed }: Props) {
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+          <label htmlFor="email" style={srOnly}>Email</label>
           <input
+            id="email"
             type="email"
             placeholder="Email"
             value={email}
@@ -70,7 +89,9 @@ export default function AuthPage({ onAuthed }: Props) {
             required
             autoFocus
           />
+          <label htmlFor="password" style={srOnly}>Password</label>
           <input
+            id="password"
             type="password"
             placeholder={mode === 'register' ? 'Password (8+ chars)' : 'Password'}
             value={password}

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { initML, type EP } from '../lib/mlBrowser'
+import { toUserMessage } from '../lib/errorMessages'
 
 type MLState = 'loading' | 'ready' | 'error'
 
@@ -26,7 +27,7 @@ export function MLProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     initML((pct) => setLoadProgress(pct))
       .then((chosenEp) => { setEp(chosenEp); setMlState('ready') })
-      .catch((e) => { setMlError(e instanceof Error ? e.message : String(e)); setMlState('error') })
+      .catch((e) => { setMlError(toUserMessage(e, "Couldn't load face detection — try again.")); setMlState('error') })
   }, [])
 
   return (

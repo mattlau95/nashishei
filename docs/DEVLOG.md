@@ -614,3 +614,44 @@
 * Still pending from prior sessions: delete original `det_10g.onnx` + `w600k_r50.onnx` (182MB) from `frontend/public/models/` once WebGPU confirmed stable.
 
 ---
+
+## 2026-06-30 — A11y quick wins: contrast, labels, reduced-motion, error copy (MAT-532/533/535/536)
+
+**Session Goal:** Work through the four "Quick Win" tickets from the same-day UX audit (MAT-532, 533, 535, 536), then fix three adjacent raw-error/contrast issues found but not ticketed.
+**Status:** Completed ✅ — all four tickets implemented and marked Done in Linear, `tsc -b` clean (two pre-existing unrelated errors in `CastGrid.tsx`/`mlBrowser.ts` confirmed present on `main` before this session via `git stash` comparison). Manual pa11y/axe re-run and OS-level reduced-motion toggle verification not performed this session — see Next Session.
+
+### The "Why" (Decision Log)
+
+* **`#0072ef` over an arbitrary darker blue for `--color-blue`:** used pa11y's own suggested replacement value from the ticket (computes to ~4.51:1, clears the 4.5:1 AA floor) rather than picking a new shade — keeps the fix traceable to the same tool that flagged the failure, and it's a single token change that propagates to every reuse site.
+* **Real `<label>` + local `srOnly` inline-style const over `aria-label` for `AuthPage.tsx`'s email/password inputs:** the codebase has zero CSS classes or CSS-in-JS anywhere (confirmed via repo-wide grep) — every other style is an inline `style={{}}` object, so a one-off visually-hidden `<label>` styled inline matches the existing convention better than introducing a new CSS utility class. `aria-label` was used instead for the Viewer popover's input/close-button, matching that file's existing `QCOverlay.tsx`/`Home.tsx` icon-button convention of a plain `aria-label` prop with no wrapper.
+* **CSS-only `@media (prefers-reduced-motion: reduce)` override of the `pulseRing` keyframes over a JS `matchMedia` check in `Viewer.tsx`:** the animation is invoked via a JS-set inline `style.animation` string, but the keyframes themselves live in global `index.css`. Redefining the same keyframe name inside a reduced-motion media query (last matching rule wins) makes the animation run but visually stay static, without touching `Viewer.tsx`'s component logic at all. `SpotlightPlayer.tsx`'s sheet-slide and carousel-tile transitions *did* need a JS-level fix (new `usePrefersReducedMotion()` hook gating `transition: 'none'`) since those are driven by inline `transition` strings tied to component state, not a shared global keyframe.
+* **Skipped `FaceNameList.tsx` for MAT-535 — ticket's claim didn't match current code:** the ticket described a "sticky-footer transition," but the sticky footer (`position: sticky`, no animated property) has nothing to gate; the file's only `transition` is an unrelated 0.15s Copy-button color fade, not motion in the WCAG 2.3.3 sense. Left untouched rather than inventing something to "fix."
+* **New `FriendlyError`/`toUserMessage` utility (`lib/errorMessages.ts`) over per-call-site ad hoc friendly strings:** no error-mapping pattern existed anywhere in the codebase before this (grepped for one, found none) and the raw-passthrough bug showed up in two unrelated hooks (`useFaceDetection.ts`, and `MLContext.tsx` — see next bullet), so a shared `FriendlyError` marker class let both hooks (and later the two follow-up files) opt specific thrown messages into "show verbatim" while everything else falls back to generic copy, instead of duplicating the same `instanceof Error ? ... : ...` logic four times.
+* **`MLContext.tsx` pulled into MAT-536 scope despite the ticket text — ticket was factually wrong about where `Home.tsx`'s `mlError` originates:** MAT-536 claimed `Home.tsx`'s `mlError` "sources from `useFaceDetection.ts:74-77`," but it actually comes from a separate sibling hook, `contexts/MLContext.tsx:29`, with its own identical raw-passthrough bug. Fixed both rather than following the ticket text literally and leaving `MLContext.tsx`'s copy of the bug in place.
+* **Fixed three adjacent raw-error/contrast issues directly rather than filing new Linear tickets:** found while researching MAT-536/532 (`AuthPage.tsx:26` raw server response text, `FaceNameList.tsx:174` raw `err.message` passthrough, `SpotlightPlayer.tsx:117` hardcoded `#007AFF` instead of the now-fixed `--color-blue` token) — offered the user a choice between filing tickets or fixing now; user chose to fix now since they're small and directly adjacent to code just touched.
+
+### Technical Notes
+
+* `frontend/src/tokens.css` — `--color-blue` `#007AFF` → `#0072ef`; stale contrast comment corrected to match.
+* `frontend/src/pages/AuthPage.tsx` — added `srOnly` const, `<label htmlFor>`/`id` pairs for email/password; replaced raw `res.text()` passthrough on auth failure with mode-specific friendly copy, raw text now goes to `console.error` only.
+* `frontend/src/pages/Viewer.tsx` — `aria-label="Name for this person"` on the popover input, `aria-label="Close"` on the ✕ button.
+* `frontend/src/index.css` — added reduced-motion override block redefining `@keyframes pulseRing` to a no-op under `prefers-reduced-motion: reduce`.
+* `frontend/src/hooks/usePrefersReducedMotion.ts` — new hook, wraps `window.matchMedia('(prefers-reduced-motion: reduce)')` with a `change` listener.
+* `frontend/src/components/SpotlightPlayer.tsx` — both `transition` declarations (sheet slide-up, carousel tiles) now `'none'` when `usePrefersReducedMotion()` is true; also fixed hardcoded `#007AFF` on the Close button text → `var(--color-blue)`.
+* `frontend/src/lib/errorMessages.ts` — new `FriendlyError` class + `toUserMessage(err, fallback)` helper (calls `console.error` internally, returns the message verbatim only for `FriendlyError` instances).
+* `frontend/src/hooks/useFaceDetection.ts` — three throw sites converted to `FriendlyError` with human copy; catch block now one line via `toUserMessage`.
+* `frontend/src/contexts/MLContext.tsx` — `mlError` catch now routed through `toUserMessage`.
+* `frontend/src/components/ImageDetector.tsx` — dropped the now-redundant `"Detection error: "` prefix (error text is friendly on its own).
+* `frontend/src/pages/Home.tsx` — `mlError` display simplified to `{mlError || 'Face detection failed to load — refresh to retry.'}` instead of awkwardly appending it in parens after another full sentence.
+* `frontend/src/components/FaceNameList.tsx` — same `FriendlyError`/`toUserMessage` treatment applied to `handleSave`'s four throw sites and catch block (the MAT-536-adjacent follow-up fix).
+* MAT-532, MAT-533, MAT-535, MAT-536 all marked Done in Linear.
+
+### Next Session
+
+* Manual pa11y/axe re-run against the login page and Viewer naming flow to formally confirm MAT-532/533's acceptance criteria (zero color-contrast / missing-label violations) — not run this session, only `tsc` was checked.
+* Toggle OS-level "reduce motion" and confirm the pulse ring, Spotlight sheet, and carousel snap instead of animate (MAT-535 acceptance criterion) — not manually verified this session.
+* Trigger a real detection failure (blocked model fetch / API down) to confirm MAT-536's friendly-copy acceptance criterion end-to-end in the browser, not just by code inspection.
+* MAT-534, MAT-537, MAT-538 still open from the same audit (naming-flow data-loss protection, naming/QC polish, prod-build LCP verification) — untouched this session.
+* Still pending from prior sessions: delete original `det_10g.onnx` + `w600k_r50.onnx` (182MB) from `frontend/public/models/` once WebGPU confirmed stable; MAT-530's manual delete-verification checklist.
+
+---

@@ -240,7 +240,7 @@ function HomeContent({ onLogout }: { onLogout: () => void }) {
           )}
           {mlState === 'error' && (
             <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: 'var(--space-3)' }}>
-              Face detection failed to load — refresh to retry.{mlError ? ` (${mlError})` : ''}
+              {mlError || 'Face detection failed to load — refresh to retry.'}
             </p>
           )}
 

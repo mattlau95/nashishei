@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 
 const CENTER_SIZE = 128
 const SPACING = Math.round(CENTER_SIZE * 0.82)
@@ -64,6 +65,7 @@ export default function SpotlightPlayer({ labels, crops, highlightedId, onHighli
   const n = sorted.length
   const [activeIdx, setActiveIdx] = useState(0)
   const [mounted, setMounted] = useState(false)
+  const prefersReducedMotion = usePrefersReducedMotion()
 
   useEffect(() => {
     const id = requestAnimationFrame(() => setMounted(true))
@@ -101,7 +103,7 @@ export default function SpotlightPlayer({ labels, crops, highlightedId, onHighli
         boxShadow: '0 -14px 44px rgba(0,0,0,.3)',
         paddingBottom: 30,
         transform: mounted ? 'translateY(0)' : 'translateY(105%)',
-        transition: 'transform .5s cubic-bezier(.32,.72,0,1)',
+        transition: prefersReducedMotion ? 'none' : 'transform .5s cubic-bezier(.32,.72,0,1)',
       }}
     >
       {/* Grabber */}
@@ -114,7 +116,7 @@ export default function SpotlightPlayer({ labels, crops, highlightedId, onHighli
       <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '21px 20px 2px' }}>
         <button
           onClick={onClose}
-          style={{ fontSize: 17, fontWeight: 600, color: '#007AFF', cursor: 'pointer', background: 'none', border: 'none' }}
+          style={{ fontSize: 17, fontWeight: 600, color: 'var(--color-blue)', cursor: 'pointer', background: 'none', border: 'none' }}
         >
           Close
         </button>
@@ -158,7 +160,9 @@ export default function SpotlightPlayer({ labels, crops, highlightedId, onHighli
                 color: 'rgba(255,255,255,.96)', fontWeight: 600,
                 fontSize: Math.round(CENTER_SIZE * 0.30),
                 cursor: isCenter ? 'default' : 'pointer',
-                transition: 'transform .5s cubic-bezier(.32,.72,0,1), opacity .4s ease, box-shadow .3s ease',
+                transition: prefersReducedMotion
+                  ? 'none'
+                  : 'transform .5s cubic-bezier(.32,.72,0,1), opacity .4s ease, box-shadow .3s ease',
                 userSelect: 'none', overflow: 'hidden',
                 pointerEvents: ab > 2 ? 'none' : 'auto',
               }}

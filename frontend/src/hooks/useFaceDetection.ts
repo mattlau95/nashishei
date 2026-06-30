@@ -2,6 +2,7 @@ import { useRef, useState, useCallback } from 'react'
 import type { Detection, Suggestion } from '../types/detection'
 import { api } from '../lib/api'
 import { detectAndEmbed } from '../lib/mlBrowser'
+import { FriendlyError, toUserMessage } from '../lib/errorMessages'
 
 type ServerDetection = {
   id: string
@@ -31,8 +32,8 @@ export function useFaceDetection() {
         body: formData,
         credentials: 'include',
       })
-      if (uploadRes.status === 401) throw new Error('Not logged in — please sign in.')
-      if (!uploadRes.ok) throw new Error(`Image upload failed (${uploadRes.status})`)
+      if (uploadRes.status === 401) throw new FriendlyError('Not logged in — please sign in.')
+      if (!uploadRes.ok) throw new FriendlyError("Couldn't upload your photo — try again.")
       const { id: imageId } = (await uploadRes.json()) as { id: string }
       imageIdRef.current = imageId
 
@@ -54,7 +55,7 @@ export function useFaceDetection() {
           })),
         }),
       })
-      if (!detectRes.ok) throw new Error(`Failed to save detections (${detectRes.status})`)
+      if (!detectRes.ok) throw new FriendlyError("Couldn't save the detected faces — try again.")
       const { detections: serverDets, suggestions: serverSuggestions } = (await detectRes.json()) as {
         detections: ServerDetection[]
         suggestions: Suggestion[]
@@ -72,9 +73,7 @@ export function useFaceDetection() {
       )
       setSuggestions(serverSuggestions ?? [])
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error('face detection failed:', err)
-      setError(msg)
+      setError(toUserMessage(err, "Couldn't detect faces — try again."))
     } finally {
       setDetecting(false)
     }

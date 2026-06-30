@@ -90,3 +90,9 @@ input::placeholder, textarea::placeholder {
   50%  { transform: scale(1.07); opacity: 0.55; }
   100% { transform: scale(1);    opacity: 1; }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes pulseRing {
+    0%, 50%, 100% { transform: scale(1); opacity: 1; }
+  }
+}

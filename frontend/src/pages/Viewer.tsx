@@ -122,6 +122,7 @@ function NamePopover({
     >
       <input
         ref={inputRef}
+        aria-label="Name for this person"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
@@ -162,6 +163,7 @@ function NamePopover({
         </button>
         <button
           onClick={onClose}
+          aria-label="Close"
           style={{
             padding: '4px 8px',
             background: 'transparent',
