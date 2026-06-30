@@ -15,13 +15,17 @@ type SavedDetection = { id: string; bbox_x: number; bbox_y: number; bbox_w: numb
 
 const CROP_SIZE = 96
 
-function sortedDetections(dets: Detection[]): Detection[] {
-  return [...dets].sort((a, b) => a.bbox_y - b.bbox_y || a.bbox_x - b.bbox_x)
+function sortedDetections(dets: Detection[], suggestionMap: Record<string, Suggestion>): Detection[] {
+  return [...dets].sort((a, b) => {
+    const aKnown = suggestionMap[a.id]?.display_name ? 1 : 0
+    const bKnown = suggestionMap[b.id]?.display_name ? 1 : 0
+    return aKnown - bKnown || a.bbox_y - b.bbox_y || a.bbox_x - b.bbox_x
+  })
 }
 
 export default function FaceNameList({ file, imgSrc, detections, imageId, suggestions = [], onDone }: Props) {
-  const sorted = sortedDetections(detections)
   const suggestionMap = Object.fromEntries(suggestions.map((s) => [s.detection_id, s]))
+  const sorted = sortedDetections(detections, suggestionMap)
   const [crops, setCrops] = useState<Record<string, string>>({})
   const [names, setNames] = useState<Record<string, string>>(() =>
     Object.fromEntries(detections.map((d) => [d.id, suggestionMap[d.id]?.display_name ?? ''])),
