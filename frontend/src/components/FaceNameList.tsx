@@ -165,6 +165,7 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
 
       setSavedImageId(resolvedImageId)
       setDone(true)
+      void handleShare(resolvedImageId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
@@ -172,11 +173,12 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
     }
   }
 
-  async function handleShare() {
-    if (!savedImageId) return
+  async function handleShare(id?: string) {
+    const imageId = id ?? savedImageId
+    if (!imageId) return
     setSharing(true)
     try {
-      const res = await api(`/api/images/${savedImageId}/share`, {
+      const res = await api(`/api/images/${imageId}/share`, {
         method: 'POST',
         credentials: 'include',
       })
@@ -219,20 +221,25 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
   if (done) {
     return (
       <div style={{ padding: 'var(--space-6) 0', textAlign: 'center' }}>
+        <img
+          src={imgSrc}
+          alt=""
+          style={{
+            width: 120,
+            height: 120,
+            objectFit: 'cover',
+            borderRadius: 'var(--radius-md)',
+            marginBottom: 'var(--space-4)',
+          }}
+        />
         <p style={{ fontSize: 'var(--text-lg)', fontWeight: 600, marginBottom: 'var(--space-2)' }}>Saved!</p>
         <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: 'var(--space-5)' }}>
           {namedCount} of {sorted.length} faces named.
         </p>
 
-        {!shareUrl ? (
-          <button
-            onClick={() => void handleShare()}
-            disabled={sharing}
-            style={sharing ? disabledBtn : primaryBtn}
-          >
-            {sharing ? 'Generating link…' : 'Share photo'}
-          </button>
-        ) : (
+        {sharing ? (
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>Generating link…</p>
+        ) : shareUrl ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-3)' }}>
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
               Anyone with this link can tap faces to see names.
@@ -263,34 +270,35 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
               </button>
             </div>
           </div>
-        )}
+        ) : null}
 
         {error && (
           <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: 'var(--space-3)' }}>{error}</p>
         )}
 
-        <button
-          onClick={onDone}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginTop: 'var(--space-3)',
-            padding: 'var(--space-3) var(--space-5)',
-            background: 'var(--color-fill)',
-            color: 'var(--color-blue)',
-            borderRadius: 'var(--radius-pill)',
-            fontSize: 'var(--text-base)',
-            fontWeight: 600,
-            minHeight: 'var(--tap-target)',
-            border: 'none',
-            cursor: 'pointer',
-            width: '100%',
-            maxWidth: 360,
-          }}
-        >
-          View in your gallery
-        </button>
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--space-3)' }}>
+          <button
+            onClick={onDone}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 'var(--space-3) var(--space-5)',
+              background: 'var(--color-fill)',
+              color: 'var(--color-blue)',
+              borderRadius: 'var(--radius-pill)',
+              fontSize: 'var(--text-base)',
+              fontWeight: 600,
+              minHeight: 'var(--tap-target)',
+              border: 'none',
+              cursor: 'pointer',
+              width: '100%',
+              maxWidth: 360,
+            }}
+          >
+            View in your gallery
+          </button>
+        </div>
       </div>
     )
   }
