@@ -437,3 +437,87 @@
 * Test full upload → detect → name → share flow end-to-end in the Tauri window
 
 ---
+
+## 2026-06-29 — Tauri → browser-native ML (MAT-525)
+
+**Session Goal:** Prove ArcFace can run in-browser via `onnxruntime-web`, migrate the full detection flow off the Tauri/Python sidecar, and strip all Tauri code.
+**Status:** Partially Completed — ML loads, detection runs; face detection results unverified end-to-end (switched from MediaPipe to SCRFD at session end, awaiting first successful detection).
+
+### The "Why" (Decision Log)
+
+* **Browser ML over Tauri sidecar:** Tauri requires a Windows desktop install and a PyInstaller build step — a hard barrier for multi-device authoring and CI. `onnxruntime-web` with WebGPU EP runs the same ONNX weights (w600k_r50, det_10g) client-side with no install, no sidecar process, and no cloud ML cost.
+
+* **Spike-first over jumping straight to integration:** The risk was that cosine similarity in-browser would be too low to be useful. A throwaway `/spike` page with real photos confirmed 0.3–0.4 same-person vs −0.1 different-person before any production code was touched.
+
+* **5-point similarity transform alignment (closed-form) over crop-and-scale:** Naive bbox crop loses pose information — the same face at different angles produces different embeddings. Similarity transform maps detected facial keypoints to InsightFace's canonical 112×112 template, normalising scale/rotation/translation in one pass. Same algorithm as the Python sidecar.
+
+* **SCRFD `det_10g.onnx` over MediaPipe FaceLandmarker for detection:** MediaPipe FaceLandmarker returned 0 faces on every real church group photo (4000×3000, faces ~200px tall). The same photos worked in the Tauri sidecar because it used InsightFace's SCRFD detector, which is purpose-built for faces-in-the-wild at varying scales. Dropping MediaPipe and loading `det_10g.onnx` via ort gives the identical detection pipeline to the sidecar.
+
+* **`COEP: credentialless` removed over kept:** Initially added COOP + COEP to enable SharedArrayBuffer for ort WASM threading. But with `crossOriginIsolated = true`, MediaPipe chose its multi-threaded WASM variant (`vision_wasm_module_internal`), which creates Web Workers and tries to re-import itself by URL — crashing because the file was loaded via fetch, not a `<script>` tag. Removing both headers made MediaPipe fall back to the single-threaded variant. ort uses WebGPU EP (confirmed working) and doesn't need SAB.
+
+* **`import.meta.hot.decline()` in `mlBrowser.ts`:** Module-level singletons (`_arcSession`, `_detSession`) survive page renders but not Vite HMR module swaps. After any edit, HMR would install a new module instance with null sessions while `mlState` was already `'ready'`, causing "ML not initialized" on the next detect. Declining HMR forces a full page reload on any edit to this file.
+
+* **Singleton `_initPromise` guard over unguarded `useEffect`:** React 18 Strict Mode fires effects twice. Without a guard, two concurrent `initML` calls raced — the second session creation often conflicted with the WebGPU context held by the first, leaving one session null and the app in an error state.
+
+* **`SameSite=Lax` in dev over `SameSite=None`:** The Tauri SameSite=None setting was correct for a cross-site credentialed request from the Tauri WebView. In the browser-only dev environment (both frontend and API on localhost), SameSite=None requires Secure=true, which requires HTTPS. Without it the browser silently dropped the auth cookie on every request, causing login to appear to "refresh the page" without entering the app.
+
+### Technical Notes
+
+* `frontend/src/lib/mlBrowser.ts` — new file, replaces all ML logic: IndexedDB cache for both models, SCRFD preprocessing (640×640 letterbox, `(x−127.5)/128` normalisation, NCHW float32), SCRFD postprocessing (anchor decoding, NMS, 5-point kps extraction), similarity transform + ArcFace alignment, `detectAndEmbed()` public API.
+* `frontend/src/lib/arcfaceSpike.ts` + `ArcFaceSpike.tsx` — kept as dev-only tools at `/spike`; use the older MediaPipe+onnxruntime spike approach; not part of the production flow.
+* `frontend/src/contexts/MLContext.tsx` — new context wrapping `initML`; exposes `mlState`, `loadProgress`, `ep`, `mlError` to the whole tree.
+* `frontend/src/hooks/useFaceDetection.ts` — rewritten: old flow hit `/detect-and-embed` Tauri sidecar; new flow calls `detectAndEmbed(img)` then `POST /api/images/{id}/detect-client`.
+* `frontend/src/components/ImageDetector.tsx` — gated on `mlState === 'ready'` + `imgLoaded` before triggering detection.
+* Tauri stripped: `@tauri-apps/api`, `@tauri-apps/cli`, `src-tauri/`, `ml/sidecar_main.py`, Makefile `tauri-*` targets — net −4,253 lines.
+* `api/internal/handler/auth.go` — `setSessionCookie` + `Logout` now use `SameSiteLaxMode` when `!cfg.SecureCookie` (dev), `SameSiteNoneMode` when `cfg.SecureCookie` (prod).
+* `public/mediapipe-wasm/` + `public/models/face_landmarker.task` — downloaded and then made redundant when MediaPipe was dropped; directories gitignored.
+* `public/models/det_10g.onnx` (16 MB) copied from `~/.insightface/models/buffalo_l/` — same file used by the Python sidecar.
+* `docker-compose.yml` — port remapped `5432→5433` (local Postgres on 5432 intercepted Docker's mapped port); `POSTGRES_HOST_AUTH_METHOD: trust` added.
+* Windows/Docker networking: `localhost` resolves to `::6` (IPv6) on Windows; changed `DATABASE_URL` to `127.0.0.1:5433` explicitly.
+
+### Next Session
+
+* Verify `det_10g.onnx` SCRFD detects faces on first upload (check `[detect] faces found:` in console)
+* Strip debug `console.log` statements from `mlBrowser.ts` once detection confirmed
+* Remove `public/mediapipe-wasm/` and `public/models/face_landmarker.task` from disk (already gitignored, just clutter)
+* Confirm end-to-end: upload → detect → name → save → share
+* Update architecture docs to reflect pure web app (no Tauri, no sidecar)
+
+---
+
+## 2026-06-30 — Browser ML debugging + post-migration fixes
+
+**Session Goal:** Verify SCRFD face detection end-to-end in the browser, fix blockers found on first real test, and clean up post-migration clutter.
+**Status:** Completed ✅ — 17 faces detected on a 4000×3000 church group photo; full upload → detect → name → save → gallery flow confirmed working.
+
+### The "Why" (Decision Log)
+
+* **`createImageBitmap(img)` over `img.naturalWidth/naturalHeight` for scale calculations:** Chrome 89+ applies EXIF correction when calling `drawImage(HTMLImageElement)`, but `naturalWidth/naturalHeight` return the physical storage dimensions. For an iPhone photo stored sideways (e.g. 4032×3024 physical, EXIF rotate=90°), the old code computed a landscape scale but drew a portrait image into the canvas — SCRFD saw faces sideways and returned zero detections. `createImageBitmap` gives corrected dimensions and consistent pixels in one call; closing the bitmap at the end frees memory. The same bitmap is reused for both the SCRFD letterbox pass and every ArcFace alignment crop.
+
+* **Runtime catch-and-WASM-retry over relying on the `createSession` fallback:** The existing `createSession` WebGPU→WASM fallback only catches errors thrown by `InferenceSession.create()`. The `AveragePool ceil_mode` crash in `det_10g` manifests at `run()` time — the session creates successfully, the ArcFace warmup (all-zeros 112×112) passes, but the first real SCRFD inference on actual pixel data hits the unsupported ceil() path. Fix: store `_arcBuf`/`_detBuf` at module scope after loading, extract `runPipeline()`, add an inner try/catch in `detectAndEmbed` that reinitializes both sessions on WASM and retries once. Transparent to the caller; the "Detecting faces…" spinner covers the extra init time.
+
+* **onnxsim inside the existing ML Docker container over installing Python on the host:** No Python on the Windows dev machine. The `nashishei-ml` image already has Python + ONNX dependencies (installed for InsightFace), so `docker run --rm -v ./frontend/public/models:/models nashishei-ml sh -c "pip install -q onnxsim && onnxsim ..."` was zero-setup. Result: `det_10g` Shape nodes 6→3, Slice 2→1 — the dynamic shape computations that triggered the ceil_mode issue at WebGPU dispatch time. `w600k_r50` had no AveragePool issue (it's all BatchNorm + Conv + Gemm) but was simplified anyway for consistency.
+
+* **`_sim.onnx` suffix + new IndexedDB cache keys over overwriting original files:** Keeps the original models as on-disk reference while the simplified versions are validated. New cache keys (`det_10g_sim`, `w600k_r50_sim`) ensure all browsers automatically pick up the new models without manual IndexedDB clearing.
+
+* **`onDone` callback prop over `<Link to="/">` for "View in your gallery":** `<Link to="/">` on an already-mounted route does not cause React to unmount/remount `Home` — the `step` state stays at `'name'` and the gallery never shows. A direct callback into `Home.reset()` is the unambiguous path.
+
+### Technical Notes
+
+* `mlBrowser.ts` — `detectFaces` and `alignAndPreprocess` now accept `ImageBitmap` instead of `HTMLImageElement`. `detectAndEmbed` creates the bitmap once (`createImageBitmap(img)`), passes it to both functions, and closes it in a `finally` block.
+* `mlBrowser.ts` — `_arcBuf` and `_detBuf` stored at module scope after `loadModel` resolves. `runPipeline(bmp, W, H)` extracted as inner helper; `detectAndEmbed` wraps it with a catch that reinitializes to WASM and retries if `_ep === 'webgpu'`.
+* Both models simplified with `onnxsim` inside the `nashishei-ml` Docker image; outputs written directly to `frontend/public/models/`. `initML` now loads `w600k_r50_sim.onnx` and `det_10g_sim.onnx`.
+* `FaceNameList.tsx` — `onDone?: () => void` prop added; "View in your gallery" changed from `<Link to="/">` to a `<button onClick={onDone}>`. `Home.tsx` passes `reset` as `onDone`.
+* Cleanup: removed `public/models/face_landmarker.task` (3.7 MB) and `public/mediapipe-wasm/` (~11 MB) from disk (were already gitignored).
+* Confirmed working: 17 faces detected on a 4000×3000 church group photo; full upload → detect → name → save → gallery flow working end-to-end.
+
+### Next Session
+
+* Delete original `det_10g.onnx` + `w600k_r50.onnx` from `public/models/` (182 MB saved) once WebGPU confirmed clean (no WASM fallback warning in console)
+* Unrecognized faces sorted to top in step 2 of 2 (INBOX)
+* Auto-generate share link immediately on "Save names" — remove explicit "Share Photo" button (INBOX)
+* Show photo thumbnail on "Saved!" screen (INBOX)
+* Center "View in your gallery" button on "Saved!" screen (INBOX)
+* Add file organization (delete + management) to "Your Photos" gallery section (INBOX)
+
+---

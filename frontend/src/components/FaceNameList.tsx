@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { Detection, Suggestion } from '../types/detection'
 
@@ -9,6 +8,7 @@ type Props = {
   detections: Detection[]
   imageId?: string
   suggestions?: Suggestion[]
+  onDone?: () => void
 }
 
 type SavedDetection = { id: string; bbox_x: number; bbox_y: number; bbox_w: number; bbox_h: number; source: string }
@@ -19,7 +19,7 @@ function sortedDetections(dets: Detection[]): Detection[] {
   return [...dets].sort((a, b) => a.bbox_y - b.bbox_y || a.bbox_x - b.bbox_x)
 }
 
-export default function FaceNameList({ file, imgSrc, detections, imageId, suggestions = [] }: Props) {
+export default function FaceNameList({ file, imgSrc, detections, imageId, suggestions = [], onDone }: Props) {
   const sorted = sortedDetections(detections)
   const suggestionMap = Object.fromEntries(suggestions.map((s) => [s.detection_id, s]))
   const [crops, setCrops] = useState<Record<string, string>>({})
@@ -269,8 +269,8 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
           <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: 'var(--space-3)' }}>{error}</p>
         )}
 
-        <Link
-          to="/"
+        <button
+          onClick={onDone}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -283,11 +283,14 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
             fontSize: 'var(--text-base)',
             fontWeight: 600,
             minHeight: 'var(--tap-target)',
-            textDecoration: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            width: '100%',
+            maxWidth: 360,
           }}
         >
           View in your gallery
-        </Link>
+        </button>
       </div>
     )
   }

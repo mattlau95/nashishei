@@ -1,18 +1,23 @@
 import * as ort from 'onnxruntime-web'
-import { FaceLandmarker, FilesetResolver, type NormalizedLandmark } from '@mediapipe/tasks-vision'
+
+// Singletons live at module scope; HMR swapping would leave mlState='ready'
+// while sessions are null. Force a full reload on any edit to this file.
+if (import.meta.hot) import.meta.hot.decline()
 
 // ── Singletons ─────────────────────────────────────────────────────────────
 
-let _session: ort.InferenceSession | null = null
-let _landmarker: FaceLandmarker | null = null
+let _arcSession: ort.InferenceSession | null = null
+let _detSession: ort.InferenceSession | null = null
 export type EP = 'webgpu' | 'wasm'
 let _ep: EP | null = null
+// Kept after init so we can recreate sessions on WASM if WebGPU fails at runtime
+let _arcBuf: ArrayBuffer | null = null
+let _detBuf: ArrayBuffer | null = null
 
-// ── IndexedDB cache ────────────────────────────────────────────────────────
+// ── IndexedDB model cache ───────────────────────────────────────────────────
 
 const DB_NAME = 'nashishei-ml'
 const STORE = 'models'
-const MODEL_KEY = 'w600k_r50'
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((res, rej) => {
@@ -23,107 +28,206 @@ function openDb(): Promise<IDBDatabase> {
   })
 }
 
-async function getCached(): Promise<ArrayBuffer | null> {
+async function getFromCache(key: string): Promise<ArrayBuffer | null> {
   const db = await openDb()
   return new Promise((res) => {
-    const req = db.transaction(STORE).objectStore(STORE).get(MODEL_KEY)
+    const req = db.transaction(STORE).objectStore(STORE).get(key)
     req.onsuccess = () => res((req.result as ArrayBuffer) ?? null)
     req.onerror = () => res(null)
   })
 }
 
-async function putCached(buf: ArrayBuffer): Promise<void> {
+async function putToCache(key: string, buf: ArrayBuffer): Promise<void> {
   const db = await openDb()
   return new Promise((res) => {
     const tx = db.transaction(STORE, 'readwrite')
-    tx.objectStore(STORE).put(buf, MODEL_KEY)
+    tx.objectStore(STORE).put(buf, key)
     tx.oncomplete = () => res()
     tx.onerror = () => res()
   })
 }
 
-// ── ArcFace model loading ──────────────────────────────────────────────────
+// ── Model fetching with optional progress ───────────────────────────────────
 
-async function loadArcFace(
-  onProgress: (pct: number, source: 'cache' | 'network') => void,
-): Promise<EP> {
-  const ep: EP = 'gpu' in navigator ? 'webgpu' : 'wasm'
-
-  const cached = await getCached()
+async function loadModel(
+  url: string,
+  cacheKey: string,
+  onProgress?: (pct: number, source: 'cache' | 'network') => void,
+): Promise<ArrayBuffer> {
+  const cached = await getFromCache(cacheKey)
   if (cached) {
-    onProgress(100, 'cache')
-    _session = await ort.InferenceSession.create(cached, {
+    onProgress?.(100, 'cache')
+    return cached
+  }
+  const resp = await fetch(url)
+  if (!resp.ok) throw new Error(`Model fetch failed: ${url} (${resp.status})`)
+  const total = Number(resp.headers.get('content-length') ?? 0)
+  const reader = resp.body!.getReader()
+  const chunks: Uint8Array[] = []
+  let received = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value!)
+    received += value!.length
+    if (total > 0) onProgress?.((received / total) * 100, 'network')
+  }
+  const buf = new Uint8Array(received)
+  let off = 0
+  for (const c of chunks) { buf.set(c, off); off += c.length }
+  const ab = buf.buffer
+  await putToCache(cacheKey, ab)
+  return ab
+}
+
+// ── ort session creation with WebGPU → WASM fallback ───────────────────────
+
+async function createSession(buf: ArrayBuffer, ep: EP): Promise<[ort.InferenceSession, EP]> {
+  try {
+    return [await ort.InferenceSession.create(buf, {
       executionProviders: [ep],
       graphOptimizationLevel: 'all',
-    })
-  } else {
-    const resp = await fetch('/models/w600k_r50.onnx')
-    if (!resp.ok) throw new Error(`ArcFace model fetch failed (${resp.status})`)
-    const total = Number(resp.headers.get('content-length') ?? 0)
-    const reader = resp.body!.getReader()
-    const chunks: Uint8Array[] = []
-    let received = 0
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      chunks.push(value!)
-      received += value!.length
-      if (total > 0) onProgress((received / total) * 100, 'network')
+    }), ep]
+  } catch (e) {
+    if (ep === 'webgpu') {
+      console.warn('[ML] WebGPU EP failed, falling back to WASM:', e)
+      return [await ort.InferenceSession.create(buf, {
+        executionProviders: ['wasm'],
+        graphOptimizationLevel: 'all',
+      }), 'wasm']
     }
-    const buf = new Uint8Array(received)
-    let off = 0
-    for (const c of chunks) { buf.set(c, off); off += c.length }
-    const arrayBuf = buf.buffer
-    await putCached(arrayBuf)
-    _session = await ort.InferenceSession.create(arrayBuf, {
-      executionProviders: [ep],
-      graphOptimizationLevel: 'all',
-    })
+    throw e
+  }
+}
+
+// ── SCRFD face detection (det_10g.onnx) ────────────────────────────────────
+
+const DET_INPUT = 640
+const DET_STRIDES = [8, 16, 32]
+const DET_NUM_ANCHORS = 2
+const SCORE_THRESH = 0.35
+const NMS_THRESH = 0.4
+
+interface DetFace {
+  bbox: [number, number, number, number]  // x1,y1,x2,y2 in original image pixels
+  kps: [number, number][]                 // 5 keypoints in original image pixels
+  score: number
+}
+
+function generateAnchors(fmH: number, fmW: number, stride: number): Float32Array {
+  const out = new Float32Array(fmH * fmW * DET_NUM_ANCHORS * 2)
+  let i = 0
+  for (let r = 0; r < fmH; r++) {
+    for (let c = 0; c < fmW; c++) {
+      for (let a = 0; a < DET_NUM_ANCHORS; a++) {
+        out[i++] = c * stride
+        out[i++] = r * stride
+      }
+    }
+  }
+  return out
+}
+
+function iou(a: DetFace, b: DetFace): number {
+  const ix1 = Math.max(a.bbox[0], b.bbox[0])
+  const iy1 = Math.max(a.bbox[1], b.bbox[1])
+  const ix2 = Math.min(a.bbox[2], b.bbox[2])
+  const iy2 = Math.min(a.bbox[3], b.bbox[3])
+  const inter = Math.max(0, ix2 - ix1) * Math.max(0, iy2 - iy1)
+  if (inter === 0) return 0
+  const aArea = (a.bbox[2] - a.bbox[0]) * (a.bbox[3] - a.bbox[1])
+  const bArea = (b.bbox[2] - b.bbox[0]) * (b.bbox[3] - b.bbox[1])
+  return inter / (aArea + bArea - inter)
+}
+
+function nms(faces: DetFace[]): DetFace[] {
+  faces.sort((a, b) => b.score - a.score)
+  const keep: DetFace[] = []
+  const suppressed = new Uint8Array(faces.length)
+  for (let i = 0; i < faces.length; i++) {
+    if (suppressed[i]) continue
+    keep.push(faces[i])
+    for (let j = i + 1; j < faces.length; j++) {
+      if (!suppressed[j] && iou(faces[i], faces[j]) > NMS_THRESH) suppressed[j] = 1
+    }
+  }
+  return keep
+}
+
+async function detectFaces(bmp: ImageBitmap): Promise<DetFace[]> {
+  if (!_detSession) throw new Error('Detection session not initialized')
+
+  // Use ImageBitmap dimensions — these are EXIF-corrected (unlike img.naturalWidth/Height)
+  const W = bmp.width, H = bmp.height
+  const imRatio = H / W
+  let newW: number, newH: number
+  if (imRatio > 1) { newH = DET_INPUT; newW = Math.round(DET_INPUT / imRatio) }
+  else             { newW = DET_INPUT; newH = Math.round(DET_INPUT * imRatio) }
+  const scale = newH / H
+
+  const canvas = document.createElement('canvas')
+  canvas.width = DET_INPUT; canvas.height = DET_INPUT
+  const ctx = canvas.getContext('2d')!
+  // Black letterbox padding — black (0) normalises to -127.5/128 which is OOD for faces
+  ctx.fillStyle = '#000'
+  ctx.fillRect(0, 0, DET_INPUT, DET_INPUT)
+  ctx.drawImage(bmp, 0, 0, newW, newH)
+
+  const { data } = ctx.getImageData(0, 0, DET_INPUT, DET_INPUT)
+  const N = DET_INPUT * DET_INPUT
+  const tensor = new Float32Array(3 * N)
+  for (let i = 0; i < N; i++) {
+    tensor[i]       = (data[i * 4]     - 127.5) / 128
+    tensor[N + i]   = (data[i * 4 + 1] - 127.5) / 128
+    tensor[N*2 + i] = (data[i * 4 + 2] - 127.5) / 128
   }
 
-  // warmup: compile GPU pipelines before first real inference
-  const dummy = new ort.Tensor('float32', new Float32Array(3 * 112 * 112), [1, 3, 112, 112])
   const feeds: Record<string, ort.Tensor> = {}
-  feeds[_session.inputNames[0]] = dummy
-  await _session.run(feeds)
+  feeds[_detSession.inputNames[0]] = new ort.Tensor('float32', tensor, [1, 3, DET_INPUT, DET_INPUT])
+  const outs = await _detSession.run(feeds)
+  const outNames = _detSession.outputNames  // [score8,score16,score32, bbox8..., kps8...]
 
-  return ep
+  const candidates: DetFace[] = []
+  for (let si = 0; si < DET_STRIDES.length; si++) {
+    const stride = DET_STRIDES[si]
+    const fmH = Math.ceil(DET_INPUT / stride)
+    const fmW = Math.ceil(DET_INPUT / stride)
+    const n = fmH * fmW * DET_NUM_ANCHORS
+
+    const scores = outs[outNames[si]].data as Float32Array
+    const bboxes = outs[outNames[si + DET_STRIDES.length]].data as Float32Array
+    const kpss   = outs[outNames[si + DET_STRIDES.length * 2]].data as Float32Array
+    const anchors = generateAnchors(fmH, fmW, stride)
+
+    for (let p = 0; p < n; p++) {
+      const score = scores[p]
+      if (score < SCORE_THRESH) continue
+
+      const cx = anchors[p * 2], cy = anchors[p * 2 + 1]
+
+      const x1 = Math.max(0, (cx - bboxes[p*4]   * stride) / scale)
+      const y1 = Math.max(0, (cy - bboxes[p*4+1] * stride) / scale)
+      const x2 = Math.min(W,  (cx + bboxes[p*4+2] * stride) / scale)
+      const y2 = Math.min(H,  (cy + bboxes[p*4+3] * stride) / scale)
+
+      const kps: [number, number][] = []
+      for (let k = 0; k < 5; k++) {
+        kps.push([
+          Math.min(W, Math.max(0, (cx + kpss[p*10 + k*2]   * stride) / scale)),
+          Math.min(H, Math.max(0, (cy + kpss[p*10 + k*2+1] * stride) / scale)),
+        ])
+      }
+      candidates.push({ bbox: [x1, y1, x2, y2], kps, score })
+    }
+  }
+
+  return nms(candidates)
 }
 
-// ── FaceLandmarker loading ─────────────────────────────────────────────────
-
-async function loadFaceLandmarker(): Promise<void> {
-  const vision = await FilesetResolver.forVisionTasks(
-    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm',
-  )
-  _landmarker = await FaceLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath:
-        'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-      delegate: 'GPU',
-    },
-    runningMode: 'IMAGE',
-    numFaces: 30,
-    minFaceDetectionConfidence: 0.4,
-    outputFaceBlendshapes: false,
-  })
-}
-
-// ── Public init ────────────────────────────────────────────────────────────
-
-export async function initML(
-  onProgress: (pct: number, source: 'cache' | 'network') => void,
-): Promise<EP> {
-  const [ep] = await Promise.all([loadArcFace(onProgress), loadFaceLandmarker()])
-  _ep = ep
-  return ep
-}
-
-export function getEP(): EP | null { return _ep }
-
-// ── Face alignment ─────────────────────────────────────────────────────────
+// ── ArcFace alignment + preprocessing ──────────────────────────────────────
 
 // InsightFace canonical 5-point positions for 112×112 ArcFace input.
+// Order matches SCRFD keypoint output: leftEye, rightEye, nose, leftMouth, rightMouth.
 const ARCFACE_TEMPLATE: [number, number][] = [
   [38.2946, 51.6963],
   [73.5318, 51.5014],
@@ -131,9 +235,6 @@ const ARCFACE_TEMPLATE: [number, number][] = [
   [41.5493, 92.3655],
   [70.7299, 92.2041],
 ]
-
-// MediaPipe FaceLandmarker indices: iris centers (468/473) are part of the 478-point output.
-const MP_IDX = { leftEye: 468, rightEye: 473, nose: 1, leftMouth: 61, rightMouth: 291 }
 
 function similarityTransform(
   src: [number, number][],
@@ -153,59 +254,127 @@ function similarityTransform(
   }
   sig2 /= N; aN /= N; bN /= N
   const a = aN / sig2, b = bN / sig2
-  const tx = vx - (a * ux - b * uy)
-  const ty = vy - (b * ux + a * uy)
-  return [a, b, -b, a, tx, ty]
+  return [a, b, -b, a, vx - (a * ux - b * uy), vy - (b * ux + a * uy)]
 }
 
-function alignAndPreprocess(img: HTMLImageElement, landmarks: NormalizedLandmark[]): Float32Array {
-  const W = img.naturalWidth, H = img.naturalHeight
-  const src: [number, number][] = [
-    [landmarks[MP_IDX.leftEye].x   * W, landmarks[MP_IDX.leftEye].y   * H],
-    [landmarks[MP_IDX.rightEye].x  * W, landmarks[MP_IDX.rightEye].y  * H],
-    [landmarks[MP_IDX.nose].x      * W, landmarks[MP_IDX.nose].y      * H],
-    [landmarks[MP_IDX.leftMouth].x  * W, landmarks[MP_IDX.leftMouth].y  * H],
-    [landmarks[MP_IDX.rightMouth].x * W, landmarks[MP_IDX.rightMouth].y * H],
-  ]
+function alignAndPreprocess(bmp: ImageBitmap, kps: [number, number][]): Float32Array {
   const canvas = document.createElement('canvas')
   canvas.width = 112; canvas.height = 112
   const ctx = canvas.getContext('2d')!
-  ctx.setTransform(...similarityTransform(src, ARCFACE_TEMPLATE))
-  ctx.drawImage(img, 0, 0)
+  ctx.setTransform(...similarityTransform(kps, ARCFACE_TEMPLATE))
+  ctx.drawImage(bmp, 0, 0)
   ctx.resetTransform()
   const { data } = ctx.getImageData(0, 0, 112, 112)
   const t = new Float32Array(3 * 112 * 112)
-  const N = 112 * 112
-  for (let i = 0; i < N; i++) {
-    t[i]         = (data[i * 4]     - 127.5) / 128
-    t[N + i]     = (data[i * 4 + 1] - 127.5) / 128
-    t[N * 2 + i] = (data[i * 4 + 2] - 127.5) / 128
+  const P = 112 * 112
+  for (let i = 0; i < P; i++) {
+    t[i]       = (data[i * 4]     - 127.5) / 128
+    t[P + i]   = (data[i * 4 + 1] - 127.5) / 128
+    t[P*2 + i] = (data[i * 4 + 2] - 127.5) / 128
   }
   return t
 }
 
-// ── Public detect + embed ──────────────────────────────────────────────────
+// ── Public detect + embed ───────────────────────────────────────────────────
 
 export interface FaceResult {
   bboxNorm: { x: number; y: number; w: number; h: number }
   embedding: number[]
 }
 
-export async function detectAndEmbed(img: HTMLImageElement): Promise<FaceResult[]> {
-  if (!_session || !_landmarker) throw new Error('ML not initialized')
-  const detection = _landmarker.detect(img)
+async function runPipeline(bmp: ImageBitmap, W: number, H: number): Promise<FaceResult[]> {
+  const faces = await detectFaces(bmp)
+  console.log('[detect] faces found:', faces.length)
+
   const results: FaceResult[] = []
-  for (const landmarks of detection.faceLandmarks) {
-    const xs = landmarks.map(l => l.x), ys = landmarks.map(l => l.y)
-    const xMin = Math.min(...xs), xMax = Math.max(...xs)
-    const yMin = Math.min(...ys), yMax = Math.max(...ys)
-    const faceData = alignAndPreprocess(img, landmarks)
-    const tensor = new ort.Tensor('float32', faceData, [1, 3, 112, 112])
+  for (const face of faces) {
+    const [x1, y1, x2, y2] = face.bbox
+    const faceData = alignAndPreprocess(bmp, face.kps)
     const feeds: Record<string, ort.Tensor> = {}
-    feeds[_session.inputNames[0]] = tensor
-    const out = await _session.run(feeds)
-    const embedding = Array.from(out[_session.outputNames[0]].data as Float32Array)
-    results.push({ bboxNorm: { x: xMin, y: yMin, w: xMax - xMin, h: yMax - yMin }, embedding })
+    feeds[_arcSession!.inputNames[0]] = new ort.Tensor('float32', faceData, [1, 3, 112, 112])
+    const out = await _arcSession!.run(feeds)
+    const embedding = Array.from(out[_arcSession!.outputNames[0]].data as Float32Array)
+    results.push({
+      bboxNorm: { x: x1 / W, y: y1 / H, w: (x2 - x1) / W, h: (y2 - y1) / H },
+      embedding,
+    })
   }
   return results
 }
+
+export async function detectAndEmbed(img: HTMLImageElement): Promise<FaceResult[]> {
+  if (!_arcSession || !_detSession) throw new Error('ML not initialized')
+
+  // One bitmap for the whole pipeline — EXIF-corrected dimensions and pixels
+  const bmp = await createImageBitmap(img)
+  const W = bmp.width, H = bmp.height
+  console.log('[detect] img', W, 'x', H)
+
+  try {
+    try {
+      return await runPipeline(bmp, W, H)
+    } catch (e) {
+      // WebGPU EPs can fail at run() time even when session creation succeeded
+      // (e.g. AveragePool ceil_mode unsupported). Reinitialize both sessions on
+      // WASM and retry once — transparent to the caller.
+      if (_ep === 'webgpu' && _arcBuf && _detBuf) {
+        console.warn('[ML] WebGPU runtime failure, reinitializing on WASM:', (e as Error).message)
+        _arcSession = await ort.InferenceSession.create(_arcBuf, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' })
+        _detSession = await ort.InferenceSession.create(_detBuf, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' })
+        _ep = 'wasm'
+        return await runPipeline(bmp, W, H)
+      }
+      throw e
+    }
+  } finally {
+    bmp.close()
+  }
+}
+
+// ── Public init ─────────────────────────────────────────────────────────────
+
+let _initPromise: Promise<EP> | null = null
+
+export function initML(
+  onProgress: (pct: number, source: 'cache' | 'network') => void,
+): Promise<EP> {
+  if (_initPromise) return _initPromise
+  _initPromise = (async () => {
+    ort.env.wasm.numThreads = 1
+    const ep: EP = 'gpu' in navigator ? 'webgpu' : 'wasm'
+
+    // Load both models (ArcFace shows progress; det is small)
+    const [arcBuf, detBuf] = await Promise.all([
+      loadModel('/models/w600k_r50_sim.onnx', 'w600k_r50_sim', onProgress),
+      loadModel('/models/det_10g_sim.onnx',   'det_10g_sim'),
+    ])
+    // Keep buffers for WASM re-init if WebGPU fails at runtime (AveragePool ceil_mode)
+    _arcBuf = arcBuf
+    _detBuf = detBuf
+
+    // Create sessions (ArcFace determines EP; det reuses same EP)
+    const [[arcSession, chosenEp]] = await Promise.all([
+      createSession(arcBuf, ep),
+    ])
+    _arcSession = arcSession
+    const [[detSession]] = await Promise.all([
+      createSession(detBuf, chosenEp),
+    ])
+    _detSession = detSession
+    _ep = chosenEp
+
+    // Warmup ArcFace (small 112×112 — compiles its GPU shaders now so first embed is fast)
+    const arcDummy = new ort.Tensor('float32', new Float32Array(3 * 112 * 112), [1, 3, 112, 112])
+    const arcFeeds: Record<string, ort.Tensor> = {}
+    arcFeeds[_arcSession.inputNames[0]] = arcDummy
+    await _arcSession.run(arcFeeds)
+
+    // det (SCRFD 640×640) shaders compile on first real detect — covered by the "Detecting…" spinner
+    console.log('[ML] ready, EP=', chosenEp)
+    console.log('[ML] det output names:', _detSession.outputNames)
+    return chosenEp
+  })().catch((e) => { _initPromise = null; throw e })
+  return _initPromise
+}
+
+export function getEP(): EP | null { return _ep }

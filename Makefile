@@ -1,8 +1,8 @@
-.PHONY: dev api frontend migrate migrate-down test build tauri-dev tauri-build-mac tauri-build-windows
+.PHONY: dev api frontend migrate migrate-down test build
 
-# Start Postgres + ML sidecar in Docker, then run API and frontend locally
+# Start Postgres in Docker, then run API and frontend locally
 dev:
-	docker compose up -d db ml
+	docker compose up -d db
 	@echo "Waiting for db..." && sleep 2
 	$(MAKE) migrate
 	$(MAKE) -j2 api frontend
@@ -27,16 +27,6 @@ build:
 test:
 	cd api && go test ./...
 	cd frontend && npm run build
-
-# Tauri desktop app — dev + production builds
-tauri-dev:
-	cd frontend && npm run tauri dev
-
-tauri-build-mac:
-	cd frontend && npm run tauri build -- --target universal-apple-darwin
-
-tauri-build-windows:
-	cd frontend && npm run tauri build -- --target x86_64-pc-windows-msvc
 
 # Install local tooling
 setup:

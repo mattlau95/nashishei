@@ -92,6 +92,10 @@ func Login(db *pgxpool.Pool, cfg config.Config) http.HandlerFunc {
 
 func Logout(cfg config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		sameSite := http.SameSiteLaxMode
+		if cfg.SecureCookie {
+			sameSite = http.SameSiteNoneMode
+		}
 		http.SetCookie(w, &http.Cookie{
 			Name:     "session",
 			Value:    "",
@@ -99,7 +103,7 @@ func Logout(cfg config.Config) http.HandlerFunc {
 			MaxAge:   -1,
 			HttpOnly: true,
 			Secure:   cfg.SecureCookie,
-			SameSite: http.SameSiteNoneMode,
+			SameSite: sameSite,
 		})
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -111,6 +115,10 @@ func setSessionCookie(w http.ResponseWriter, accountID string, cfg config.Config
 		"exp":        time.Now().Add(7 * 24 * time.Hour).Unix(),
 	})
 	signed, _ := token.SignedString([]byte(cfg.JWTSecret))
+	sameSite := http.SameSiteLaxMode
+	if cfg.SecureCookie {
+		sameSite = http.SameSiteNoneMode
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
 		Value:    signed,
@@ -118,7 +126,7 @@ func setSessionCookie(w http.ResponseWriter, accountID string, cfg config.Config
 		MaxAge:   int((7 * 24 * time.Hour).Seconds()),
 		HttpOnly: true,
 		Secure:   cfg.SecureCookie,
-		SameSite: http.SameSiteNoneMode,
+		SameSite: sameSite,
 	})
 }
 

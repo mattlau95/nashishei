@@ -13,7 +13,7 @@ const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_SIZE_MB = 50
 
 export default function Home({ onLogout }: { onLogout: () => void }) {
-  const { mlState, loadProgress } = useML()
+  const { mlState, loadProgress, mlError } = useML()
   const [step, setStep] = useState<Step>('pick')
   const [file, setFile] = useState<File | null>(null)
   const [imageSrc, setImageSrc] = useState<string | null>(null)
@@ -169,7 +169,7 @@ export default function Home({ onLogout }: { onLogout: () => void }) {
           )}
           {mlState === 'error' && (
             <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', marginTop: 'var(--space-3)' }}>
-              Face detection failed to load. Refresh to retry.
+              Face detection failed to load — refresh to retry.{mlError ? ` (${mlError})` : ''}
             </p>
           )}
 
@@ -216,6 +216,7 @@ export default function Home({ onLogout }: { onLogout: () => void }) {
             detections={confirmedDetections}
             imageId={confirmedImageId ?? undefined}
             suggestions={confirmedSuggestions}
+            onDone={reset}
           />
         </div>
       )}
