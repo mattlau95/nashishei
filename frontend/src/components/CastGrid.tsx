@@ -14,7 +14,6 @@ type CastLabel = {
 
 type Props = {
   labels: CastLabel[]
-  totalFaces?: number
   crops: Record<string, string>
   highlightedId: string | null
   onHighlight: (id: string | null) => void
@@ -26,7 +25,7 @@ function sortLabels(labels: CastLabel[]): CastLabel[] {
   return [...labels].sort((a, b) => a.bbox_y - b.bbox_y || a.bbox_x - b.bbox_x)
 }
 
-export default function CastGrid({ labels, totalFaces, crops, highlightedId, onHighlight, token, onRename }: Props) {
+export default function CastGrid({ labels, crops, highlightedId, onHighlight, token, onRename }: Props) {
   const sorted = sortLabels(labels)
 
   const [editingId, setEditingId] = useState<string | null>(null)

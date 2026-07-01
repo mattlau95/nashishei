@@ -713,3 +713,32 @@
 * Still pending from prior sessions: delete original `det_10g.onnx`/`w600k_r50.onnx` (182MB) once WebGPU confirmed stable; MAT-530's manual delete-verification checklist.
 
 ---
+
+## 2026-06-30 — Naming/QC polish (MAT-537) + prod-build LCP verification (MAT-538)
+
+**Session Goal:** Close out the last two open tickets from the 2026-06-30 UX audit — wire up or remove the dead bulk-entry button and add a keyboard resize path (MAT-537), then confirm the ~11s dev-server LCP from MAT-531 is dev-only noise by measuring an actual production build (MAT-538).
+**Status:** Completed ✅ — both tickets marked Done in Linear. `tsc -b` clean (no pre-existing errors left — see below).
+
+### The "Why" (Decision Log)
+
+* **Wired up the bulk-entry button rather than removing it:** the feature was fully built (Chinese/Western-comma parsing, Apply/Cancel, Escape-to-close) and only blocked by a hardcoded `disabled`/`pointerEvents:'none'` — reads as an accidental shipping gap, not an intentionally-parked feature, so shipping it was the lower-risk option over deleting working code.
+* **Alt+Arrow over Shift+Arrow for keyboard resize:** the ticket's suggested binding (Shift+Arrow) was already taken — `QCOverlay.tsx`'s existing move-nudge uses Shift as the "bigger step" modifier. Used Alt+Arrow instead (Alt+Shift+Arrow for the bigger step), growing/shrinking the box from its bottom-right corner, so it doesn't collide with the existing move binding.
+* **Fixed two pre-existing, unrelated TS errors to unblock MAT-538 rather than working around them:** `npm run build` runs `tsc -b && vite build`, and the two errors flagged as "pre-existing on main" in the 2026-06-30 a11y session (`CastGrid.tsx`'s unused `totalFaces` prop, `mlBrowser.ts`'s `import.meta.hot.decline()`) hard-fail the build step entirely — there's no way to produce a production bundle to measure without touching them. `decline()` turned out to be a real bug, not just a stale type: Vite 8's `ViteHotContext` (`node_modules/vite/types/hot.d.ts`) no longer has a `decline` method at all, so the call was likely already silently broken at runtime, not just at typecheck time. Replaced it with `invalidate()`, the modern equivalent for "force full reload on edit to this module." `totalFaces` was genuinely dead — removed from `CastGrid`'s props and its one call site in `Viewer.tsx` rather than just silencing the lint.
+
+### Technical Notes
+
+* `frontend/src/components/FaceNameList.tsx` — "Paste names" trigger button: dropped `disabled`/`opacity:0.35`/`pointerEvents:'none'`, added `onClick={() => setBulkOpen(true)}`, restyled to match the app's active-link button convention (`var(--color-blue)`, `cursor: pointer`).
+* `frontend/src/components/QCOverlay.tsx` — `onKeyDown` gained an `e.altKey` branch (checked before the existing plain-arrow move branch) that adjusts `bbox_w`/`bbox_h` by ±0.005 (±0.02 with Shift), clamped to a 0.02 minimum and to the frame edge (`1 - bbox_x`/`1 - bbox_y`). Comment above `onKeyDown` updated to list the new binding.
+* `frontend/src/lib/mlBrowser.ts` — `import.meta.hot.decline()` → `import.meta.hot.invalidate()`.
+* `frontend/src/components/CastGrid.tsx` / `frontend/src/pages/Viewer.tsx` — removed the unused `totalFaces` prop (type, destructure, and the one call site).
+* Ran `cd frontend && npm run build && npm run preview` (port 4173), then `npx lighthouse http://localhost:4173/ --only-categories=performance` against `/`. Result: LCP **1.4s** (was ~11s dev-server), FCP 1.4s, TBT 20ms, CLS 0, total page weight **83 KiB**, performance score **100** — confirms MAT-531's dev-server-noise hypothesis; no further investigation needed.
+* `npx tsc -b` clean (zero errors — the two previously-tracked pre-existing errors are now fixed, not just unrelated-and-ignored).
+* MAT-537 and MAT-538 both marked Done in Linear.
+
+### Next Session
+
+* Manual browser verification of MAT-537: confirm "Paste names" opens the textarea and applies parsed names to the list in order; confirm Alt+Arrow (and Alt+Shift+Arrow) resizes a selected face box without moving it, from the keyboard only.
+* Still pending from prior sessions: delete original `det_10g.onnx`/`w600k_r50.onnx` (182MB) from `frontend/public/models/` once WebGPU confirmed stable; MAT-530's manual delete-verification checklist.
+* All eight tickets from the 2026-06-30 UX audit (MAT-531–MAT-538) are now closed.
+
+---

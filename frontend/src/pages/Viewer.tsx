@@ -529,7 +529,6 @@ export default function Viewer() {
       {showGrid && (
         <CastGrid
           labels={namedLabels}
-          totalFaces={data.labels.length}
           crops={crops}
           highlightedId={selectedId}
           onHighlight={handleGridSelect}

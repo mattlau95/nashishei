@@ -2,7 +2,7 @@ import * as ort from 'onnxruntime-web'
 
 // Singletons live at module scope; HMR swapping would leave mlState='ready'
 // while sessions are null. Force a full reload on any edit to this file.
-if (import.meta.hot) import.meta.hot.decline()
+if (import.meta.hot) import.meta.hot.invalidate()
 
 // ── Singletons ─────────────────────────────────────────────────────────────
 

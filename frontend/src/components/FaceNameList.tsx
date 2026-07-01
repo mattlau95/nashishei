@@ -331,18 +331,16 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
           {namedCount} of {sorted.length} named
         </p>
         <button
-          disabled
+          onClick={() => setBulkOpen(true)}
           style={{
             padding: '4px 12px',
             background: 'transparent',
-            color: 'var(--color-text-muted)',
+            color: 'var(--color-blue)',
             border: 'none',
             borderRadius: 'var(--radius-pill)',
-            cursor: 'not-allowed',
+            cursor: 'pointer',
             fontSize: 'var(--text-sm)',
             fontWeight: 600,
-            opacity: 0.35,
-            pointerEvents: 'none',
           }}
         >
           Paste names

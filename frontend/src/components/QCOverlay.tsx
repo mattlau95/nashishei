@@ -192,7 +192,7 @@ export default function QCOverlay({ detections, setDetections, addMode, scale = 
     }
   }
 
-  // ── keyboard: Tab cycle, arrow nudge, Backspace/Delete remove, Escape deselect ─
+  // ── keyboard: Tab cycle, arrow nudge, Alt+arrow resize, Backspace/Delete remove, Escape deselect ─
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key === 'Tab') {
       e.preventDefault()
@@ -211,6 +211,28 @@ export default function QCOverlay({ detections, setDetections, addMode, scale = 
     }
 
     if (!selectedId) return
+
+    // Alt+Arrow grows/shrinks the box from its bottom-right corner (Alt+Shift+Arrow for a bigger step) —
+    // Shift alone is already the "bigger nudge" modifier for move, so resize needs a different modifier.
+    if (e.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      e.preventDefault()
+      const STEP = e.shiftKey ? 0.02 : 0.005
+      const MIN = 0.02
+      const dw = e.key === 'ArrowLeft' ? -STEP : e.key === 'ArrowRight' ? STEP : 0
+      const dh = e.key === 'ArrowUp' ? -STEP : e.key === 'ArrowDown' ? STEP : 0
+      setDetections((prev) =>
+        prev.map((det) =>
+          det.id !== selectedId
+            ? det
+            : {
+                ...det,
+                bbox_w: Math.max(MIN, Math.min(1 - det.bbox_x, det.bbox_w + dw)),
+                bbox_h: Math.max(MIN, Math.min(1 - det.bbox_y, det.bbox_h + dh)),
+              },
+        ),
+      )
+      return
+    }
 
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
       e.preventDefault()
