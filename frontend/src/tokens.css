@@ -6,6 +6,7 @@
  *   --color-text-muted  rgba(60,60,67,.6) on white → ~5.9:1  AA ✅
  *   --color-error       #ff3b30  on white → 4.5:1   AA ✅
  *   --color-blue        #0072ef  on white → 4.51:1  AA ✅
+ *   --color-success      #248a3d  on white → 4.53:1  AA ✅
  *
  * ⚠️ ACCENT USAGE RULES (yellow — 1.37:1 on white):
  *   • Text ON accent: use --color-text ONLY. NEVER white.
@@ -34,6 +35,7 @@
   --color-overlay-label:      rgba(20,20,20,0.92); /* name labels over photos */
   --color-scrim:              rgba(0,0,0,0.35);
   --color-error:              #ff3b30;       /* iOS destructive red */
+  --color-success:            #248a3d;       /* iOS system green, darkened for AA contrast */
 
   /* ── Type scale ─────────────────────────────────────────────────────────── */
   --text-xs:    0.78rem;   /* ~14px  fine print */

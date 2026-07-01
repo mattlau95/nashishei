@@ -3,6 +3,8 @@ import { api } from '../lib/api'
 
 type Props = { onAuthed: () => void }
 
+const SUCCESS_DISPLAY_MS = 1200
+
 const srOnly: React.CSSProperties = {
   position: 'absolute',
   width: 1,
@@ -21,6 +23,7 @@ export default function AuthPage({ onAuthed }: Props) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -41,13 +44,14 @@ export default function AuthPage({ onAuthed }: Props) {
             ? 'Could not sign in — check your email and password.'
             : 'Could not create account — try again.',
         )
+        setLoading(false)
         return
       }
       localStorage.setItem('authed', '1')
-      onAuthed()
+      setSuccess(true)
+      setTimeout(onAuthed, SUCCESS_DISPLAY_MS)
     } catch {
       setError('Network error — is the API running?')
-    } finally {
       setLoading(false)
     }
   }
@@ -73,77 +77,113 @@ export default function AuthPage({ onAuthed }: Props) {
           boxShadow: '0 2px 20px rgba(0,0,0,0.08)',
         }}
       >
-        <h1 style={{ fontSize: 'var(--text-title)', marginBottom: 4 }}>nàshìshéi</h1>
-        <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: 28 }}>
-          那是谁 — Who Is That?
-        </p>
-
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-          <label htmlFor="email" style={srOnly}>Email</label>
-          <input
-            id="email"
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoFocus
-          />
-          <label htmlFor="password" style={srOnly}>Password</label>
-          <input
-            id="password"
-            type="password"
-            placeholder={mode === 'register' ? 'Password (8+ chars)' : 'Password'}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-
-          {error && (
-            <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', margin: 0 }}>{error}</p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
+        {success ? (
+          <div
+            role="status"
             style={{
-              marginTop: 4,
-              padding: '14px',
-              width: '100%',
-              background: loading ? 'rgba(0,122,255,0.5)' : 'var(--color-blue)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 'var(--radius-pill)',
-              fontWeight: 600,
-              fontSize: 'var(--text-base)',
-              cursor: loading ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 'var(--space-3)',
+              padding: '24px 0',
+              animation: 'successPop 260ms ease-out',
             }}
           >
-            {loading ? '…' : mode === 'login' ? 'Sign in' : 'Create account'}
-          </button>
-        </form>
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: '50%',
+                background: 'var(--color-success)',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 28,
+                lineHeight: 1,
+              }}
+            >
+              ✓
+            </div>
+            <p style={{ color: 'var(--color-success)', fontSize: 'var(--text-lg)', fontWeight: 600 }}>
+              {mode === 'login' ? 'Signed in successfully' : 'Account created'}
+            </p>
+          </div>
+        ) : (
+          <>
+            <h1 style={{ fontSize: 'var(--text-title)', marginBottom: 4 }}>nàshìshéi</h1>
+            <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: 28 }}>
+              那是谁 — Who Is That?
+            </p>
 
-        <p style={{ marginTop: 'var(--space-5)', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textAlign: 'center' }}>
-          {mode === 'login' ? (
-            <>No account?{' '}
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              <label htmlFor="email" style={srOnly}>Email</label>
+              <input
+                id="email"
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoFocus
+              />
+              <label htmlFor="password" style={srOnly}>Password</label>
+              <input
+                id="password"
+                type="password"
+                placeholder={mode === 'register' ? 'Password (8+ chars)' : 'Password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+
+              {error && (
+                <p style={{ color: 'var(--color-error)', fontSize: 'var(--text-sm)', margin: 0 }}>{error}</p>
+              )}
+
               <button
-                onClick={() => { setMode('register'); setError(null) }}
-                style={{ background: 'none', border: 'none', color: 'var(--color-blue)', cursor: 'pointer', padding: 0, fontSize: 'inherit', fontWeight: 600 }}
+                type="submit"
+                disabled={loading}
+                style={{
+                  marginTop: 4,
+                  padding: '14px',
+                  width: '100%',
+                  background: loading ? 'rgba(0,122,255,0.5)' : 'var(--color-blue)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 'var(--radius-pill)',
+                  fontWeight: 600,
+                  fontSize: 'var(--text-base)',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                }}
               >
-                Register
+                {loading ? '…' : mode === 'login' ? 'Sign in' : 'Create account'}
               </button>
-            </>
-          ) : (
-            <>Have an account?{' '}
-              <button
-                onClick={() => { setMode('login'); setError(null) }}
-                style={{ background: 'none', border: 'none', color: 'var(--color-blue)', cursor: 'pointer', padding: 0, fontSize: 'inherit', fontWeight: 600 }}
-              >
-                Sign in
-              </button>
-            </>
-          )}
-        </p>
+            </form>
+
+            <p style={{ marginTop: 'var(--space-5)', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textAlign: 'center' }}>
+              {mode === 'login' ? (
+                <>No account?{' '}
+                  <button
+                    onClick={() => { setMode('register'); setError(null) }}
+                    style={{ background: 'none', border: 'none', color: 'var(--color-blue)', cursor: 'pointer', padding: 0, fontSize: 'inherit', fontWeight: 600 }}
+                  >
+                    Register
+                  </button>
+                </>
+              ) : (
+                <>Have an account?{' '}
+                  <button
+                    onClick={() => { setMode('login'); setError(null) }}
+                    style={{ background: 'none', border: 'none', color: 'var(--color-blue)', cursor: 'pointer', padding: 0, fontSize: 'inherit', fontWeight: 600 }}
+                  >
+                    Sign in
+                  </button>
+                </>
+              )}
+            </p>
+          </>
+        )}
       </div>
     </main>
   )

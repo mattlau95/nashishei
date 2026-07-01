@@ -91,8 +91,18 @@ input::placeholder, textarea::placeholder {
   100% { transform: scale(1);    opacity: 1; }
 }
 
+@keyframes successPop {
+  0%   { transform: scale(0.8); opacity: 0; }
+  60%  { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   @keyframes pulseRing {
     0%, 50%, 100% { transform: scale(1); opacity: 1; }
+  }
+
+  @keyframes successPop {
+    0%, 100% { transform: scale(1); opacity: 1; }
   }
 }
