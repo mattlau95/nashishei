@@ -9,10 +9,21 @@ if (import.meta.hot) import.meta.hot.invalidate()
 let _arcSession: ort.InferenceSession | null = null
 let _detSession: ort.InferenceSession | null = null
 export type EP = 'webgpu' | 'wasm'
-let _ep: EP | null = null
-// Kept after init so we can recreate sessions on WASM if WebGPU fails at runtime
-let _arcBuf: ArrayBuffer | null = null
+// Tracked separately, each recovered independently, so a WebGPU failure in one
+// session can't force the other off WebGPU unnecessarily (MAT-541). det_10g_sim
+// previously failed every run (AveragePool ceil_mode unsupported by WebGPU's
+// shape computation) — fixed at the source by patching ceil_mode 1→0 on its 3
+// AveragePool nodes (verified bit-identical output: this model always sees
+// even-dimensioned inputs at those nodes, where ceil/floor rounding agree).
+// That fix also incidentally resolved a second bug where w600k_r50_sim threw
+// `kernel "[Transpose] Transpose" is not allowed to be called recursively` —
+// only ever observed when the detector's WASM fallback recreated a session
+// mid-pipeline while the WebGPU ArcFace session was live.
+let _detEp: EP | null = null
+let _arcEp: EP | null = null
+// Kept after init so either session can be recreated on WASM if WebGPU fails at runtime
 let _detBuf: ArrayBuffer | null = null
+let _arcBuf: ArrayBuffer | null = null
 
 // ── IndexedDB model cache ───────────────────────────────────────────────────
 
@@ -282,10 +293,7 @@ export interface FaceResult {
   embedding: number[]
 }
 
-async function runPipeline(bmp: ImageBitmap, W: number, H: number): Promise<FaceResult[]> {
-  const faces = await detectFaces(bmp)
-  console.log('[detect] faces found:', faces.length)
-
+async function embedFaces(bmp: ImageBitmap, faces: DetFace[], W: number, H: number): Promise<FaceResult[]> {
   const results: FaceResult[] = []
   for (const face of faces) {
     const [x1, y1, x2, y2] = face.bbox
@@ -302,6 +310,43 @@ async function runPipeline(bmp: ImageBitmap, W: number, H: number): Promise<Face
   return results
 }
 
+async function runPipeline(bmp: ImageBitmap, W: number, H: number): Promise<FaceResult[]> {
+  let faces: DetFace[]
+  try {
+    faces = await detectFaces(bmp)
+  } catch (e) {
+    // Defensive: WebGPU can still fail at run() time for reasons outside our
+    // control (driver quirks, unsupported ops in a future model swap). The
+    // known ceil_mode cause (MAT-541) is patched at the model level and
+    // shouldn't hit this path anymore. Reinitialize only the detector on WASM
+    // and retry; ArcFace is a different graph and is recovered independently.
+    if (_detEp === 'webgpu' && _detBuf) {
+      console.warn('[ML] WebGPU runtime failure on detector, reinitializing detector on WASM (ArcFace unaffected):', (e as Error).message)
+      _detSession = await ort.InferenceSession.create(_detBuf, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' })
+      _detEp = 'wasm'
+      faces = await detectFaces(bmp)
+    } else {
+      throw e
+    }
+  }
+  console.log('[detect] faces found:', faces.length)
+
+  try {
+    return await embedFaces(bmp, faces, W, H)
+  } catch (e) {
+    // Defensive, same as the detector's catch above — MAT-543's Transpose
+    // recursion only ever reproduced when the detector's WASM fallback fired
+    // mid-pipeline (MAT-541), which no longer happens now that's patched.
+    if (_arcEp === 'webgpu' && _arcBuf) {
+      console.warn('[ML] WebGPU runtime failure on ArcFace, reinitializing ArcFace on WASM (detector unaffected):', (e as Error).message)
+      _arcSession = await ort.InferenceSession.create(_arcBuf, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' })
+      _arcEp = 'wasm'
+      return await embedFaces(bmp, faces, W, H)
+    }
+    throw e
+  }
+}
+
 export async function detectAndEmbed(img: HTMLImageElement): Promise<FaceResult[]> {
   if (!_arcSession || !_detSession) throw new Error('ML not initialized')
 
@@ -311,21 +356,7 @@ export async function detectAndEmbed(img: HTMLImageElement): Promise<FaceResult[
   console.log('[detect] img', W, 'x', H)
 
   try {
-    try {
-      return await runPipeline(bmp, W, H)
-    } catch (e) {
-      // WebGPU EPs can fail at run() time even when session creation succeeded
-      // (e.g. AveragePool ceil_mode unsupported). Reinitialize both sessions on
-      // WASM and retry once — transparent to the caller.
-      if (_ep === 'webgpu' && _arcBuf && _detBuf) {
-        console.warn('[ML] WebGPU runtime failure, reinitializing on WASM:', (e as Error).message)
-        _arcSession = await ort.InferenceSession.create(_arcBuf, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' })
-        _detSession = await ort.InferenceSession.create(_detBuf, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' })
-        _ep = 'wasm'
-        return await runPipeline(bmp, W, H)
-      }
-      throw e
-    }
+    return await runPipeline(bmp, W, H)
   } finally {
     bmp.close()
   }
@@ -348,20 +379,20 @@ export function initML(
       loadModel('/models/w600k_r50_sim.onnx', 'w600k_r50_sim', onProgress),
       loadModel('/models/det_10g_sim.onnx',   'det_10g_sim'),
     ])
-    // Keep buffers for WASM re-init if WebGPU fails at runtime (AveragePool ceil_mode)
-    _arcBuf = arcBuf
+    // Keep both buffers for WASM re-init if WebGPU fails at runtime
     _detBuf = detBuf
+    _arcBuf = arcBuf
 
-    // Create sessions (ArcFace determines EP; det reuses same EP)
-    const [[arcSession, chosenEp]] = await Promise.all([
+    // Create sessions independently — a detector-side runtime failure (MAT-541)
+    // must not force ArcFace onto WASM too, so their EPs are tracked separately.
+    const [[arcSession, arcChosenEp], [detSession, detChosenEp]] = await Promise.all([
       createSession(arcBuf, ep),
+      createSession(detBuf, ep),
     ])
     _arcSession = arcSession
-    const [[detSession]] = await Promise.all([
-      createSession(detBuf, chosenEp),
-    ])
     _detSession = detSession
-    _ep = chosenEp
+    _arcEp = arcChosenEp
+    _detEp = detChosenEp
 
     // Warmup ArcFace (small 112×112 — compiles its GPU shaders now so first embed is fast)
     const arcDummy = new ort.Tensor('float32', new Float32Array(3 * 112 * 112), [1, 3, 112, 112])
@@ -370,11 +401,12 @@ export function initML(
     await _arcSession.run(arcFeeds)
 
     // det (SCRFD 640×640) shaders compile on first real detect — covered by the "Detecting…" spinner
-    console.log('[ML] ready, EP=', chosenEp)
+    console.log('[ML] ready, arcEP=', arcChosenEp, 'detEP=', detChosenEp)
     console.log('[ML] det output names:', _detSession.outputNames)
-    return chosenEp
+    return arcChosenEp
   })().catch((e) => { _initPromise = null; throw e })
   return _initPromise
 }
 
-export function getEP(): EP | null { return _ep }
+export function getEP(): EP | null { return _arcEp }
+export function getDetEP(): EP | null { return _detEp }

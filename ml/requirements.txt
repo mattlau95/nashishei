@@ -5,3 +5,6 @@ onnxruntime==1.18.1
 numpy==1.26.4
 Pillow==10.3.0
 python-multipart==0.0.9
+
+# Not used by the FastAPI app itself — needed to run patch_det_ceil_mode.py
+onnx==1.22.0
