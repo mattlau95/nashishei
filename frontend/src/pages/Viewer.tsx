@@ -359,12 +359,14 @@ export default function Viewer() {
       }}
     >
       {/* Sticky block: photo + action bar pin to top while names list scrolls below */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+      <div style={{ position: 'sticky', top: 0, zIndex: 10, display: 'flex', flexDirection: 'column' }}>
 
-      {/* Photo + overlays */}
+      {/* Photo + overlays — shrink-wraps and centers so a tall portrait photo is
+          height-capped instead of pushing the action bar off-screen below the fold */}
       <div
         style={{
           position: 'relative',
+          alignSelf: 'center',
           userSelect: 'none',
           touchAction: 'manipulation',
         }}
@@ -380,7 +382,7 @@ export default function Viewer() {
           alt=""
           draggable={false}
           crossOrigin="anonymous"
-          style={{ display: 'block', width: '100%', height: 'auto' }}
+          style={{ display: 'block', width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: '65dvh' }}
         />
 
         <Link
