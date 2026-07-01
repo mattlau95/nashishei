@@ -70,6 +70,16 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
 
   const namedCount = Object.values(names).filter((n) => n.trim() !== '').length
 
+  useEffect(() => {
+    if (namedCount === 0 || done) return
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [namedCount, done])
+
   function parseBulkNames(input: string): string[] {
     return input
       .split(/[,，、]/)
