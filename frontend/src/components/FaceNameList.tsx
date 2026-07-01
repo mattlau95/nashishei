@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { FriendlyError, toUserMessage } from '../lib/errorMessages'
 import type { Detection, Suggestion } from '../types/detection'
@@ -25,6 +26,7 @@ function sortedDetections(dets: Detection[], suggestionMap: Record<string, Sugge
 }
 
 export default function FaceNameList({ file, imgSrc, detections, imageId, suggestions = [], onDone }: Props) {
+  const navigate = useNavigate()
   const suggestionMap = Object.fromEntries(suggestions.map((s) => [s.detection_id, s]))
   const sorted = sortedDetections(detections, suggestionMap)
   const [crops, setCrops] = useState<Record<string, string>>({})
@@ -214,6 +216,18 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
     setTimeout(() => setCopied(false), 2000)
   }
 
+  function galleryPath(): string | null {
+    if (!shareUrl) return null
+    const token = shareUrl.split('/').pop()
+    return token ? `/s/${token}` : null
+  }
+
+  function goToGallery() {
+    const path = galleryPath()
+    if (path) navigate(path)
+    else onDone?.()
+  }
+
   const primaryBtn: React.CSSProperties = {
     padding: 'var(--space-3) var(--space-5)',
     background: 'var(--color-blue)',
@@ -239,12 +253,14 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
         <img
           src={imgSrc}
           alt=""
+          onClick={goToGallery}
           style={{
             width: 120,
             height: 120,
             objectFit: 'cover',
             borderRadius: 'var(--radius-md)',
             marginBottom: 'var(--space-4)',
+            cursor: 'pointer',
           }}
         />
         <p style={{ fontSize: 'var(--text-lg)', fontWeight: 600, marginBottom: 'var(--space-2)' }}>Saved!</p>
@@ -293,7 +309,7 @@ export default function FaceNameList({ file, imgSrc, detections, imageId, sugges
 
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--space-3)' }}>
           <button
-            onClick={onDone}
+            onClick={goToGallery}
             style={{
               display: 'flex',
               alignItems: 'center',
