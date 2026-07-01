@@ -743,35 +743,6 @@
 
 ---
 
-## 2026-07-01 — MAT-541/MAT-543 closed: WebGPU detection + recognition both fixed at the root
-
-**Session Goal:** Fix MAT-541 (detector always falls back to WASM on WebGPU — AveragePool `ceil_mode` error).
-**Status:** Completed ✅ — both MAT-541 and a bug it uncovered (MAT-543) closed. Detection and recognition now run cleanly on WebGPU with zero fallback, verified across multiple real-browser runs.
-
-### The "Why" (Decision Log)
-
-* **Started with MAT-541 direction (3) (decouple ArcFace/detector WebGPU fallback) over direction (1) (patch the ONNX model) as the first attempt:** direction (3) needed no new tooling — pure code change in `mlBrowser.ts`, low risk, easy to verify. Direction (1) was assumed to need ONNX graph-surgery tooling not set up in this repo. This was a "cheapest first" call, not a claim that (3) was the better fix — flagged as such when presenting the finished work.
-* **Added a WASM fallback around the ArcFace embedding step (not part of the original direction-3 plan) after real-browser verification, rather than shipping the decoupling on the ticket's untested assumption:** MAT-541 assumed ArcFace was safe on WebGPU because it has no AveragePool op. Verifying against a real photo (Playwright, `chromium.launch({headless:false})`, real GPU — Chrome for Testing still doesn't expose `navigator.gpu` under WebGPU flags, per the 2026-06-30 finding) showed that assumption was wrong: first real per-face `run()` threw `kernel "[Transpose] Transpose" is not allowed to be called recursively`, deterministically. Filed as MAT-543 rather than silently patching around it, since it's a distinct root cause from MAT-541's AveragePool issue.
-* **Investigated direction (1) after all, once asked "why not also try 1?":** re-examined the assumption that it needed new tooling — `onnx` (1.22.0) was already installed in `ml/.venv` (a leftover from the pre-pivot sidecar environment). Loaded `det_10g_sim.onnx` and found its 3 `AveragePool` nodes are all `kernel=[2,2]`, `stride=[2,2]`, `pad=0` — `ceil_mode` only changes output shape when the pooling *input* dimension is odd. Ran the model with the app's actual fixed 640×640 input (`DET_INPUT` in `mlBrowser.ts`) and confirmed every tensor feeding those nodes is always even (160→80, 80→40, 40→20), so `ceil_mode` is provably a no-op for this app's real usage — safe to patch, not just probably-safe.
-* **Verified bit-identical output before deploying the patched model, rather than trusting the shape-math argument alone:** ran both the original and patched models with 3 random-input trials via `onnxruntime` CPU inference; all 9 output tensors were `np.array_equal` on every trial. Only after that passed was the patched file copied over the live model.
-* **MAT-543 turned out to be a side effect of MAT-541, not an independent ArcFace/WebGPU incompatibility:** once the detector's `ceil_mode` bug was patched at the source, it never needs to reinitialize on WASM mid-pipeline — and the Transpose recursion (which had only ever reproduced when that reinit happened while the WebGPU ArcFace session was live) stopped reproducing across 3 consecutive fresh-browser runs. Closed MAT-543 on that evidence rather than leaving it open on a now-untestable hypothesis, while noting in the ticket that the causal mechanism (shared JSEP state during concurrent session creation) is inferred from behavior, not confirmed via deeper onnxruntime-web internals.
-
-### Technical Notes
-
-* `frontend/src/lib/mlBrowser.ts` — `_ep` split into independent `_arcEp`/`_detEp` (and `_arcBuf`/`_detBuf` both retained post-init, not just the detector's). `runPipeline`'s old single joint-fallback catch (reinit both sessions, retry once) replaced with two independent catches: `detectFaces` wrapped with its own WASM-reinit-and-retry, and a new `embedFaces(bmp, faces, W, H)` helper (extracted from the old inline embedding loop) wrapped the same way. `detectAndEmbed`'s outer try/catch simplified accordingly. `initML` now creates both sessions in parallel (previously det's creation depended sequentially on ArcFace's chosen EP) and logs `arcEP=`/`detEP=` separately. `getEP()` now returns `_arcEp`; added `getDetEP()` for `_detEp` (neither currently consumed elsewhere in the app).
-* `ml/patch_det_ceil_mode.py` (new) — persisted, reusable version of the one-off patch script: loads `det_10g_sim.onnx`, flips `ceil_mode` 1→0 on the 3 AveragePool nodes, backs up the pre-patch model to `frontend/public/models/det_10g_sim.PRE_MAT541_BACKUP.onnx`, re-verifies bit-identical output, and only then overwrites the live model. `ml/requirements.txt` — added `onnx==1.22.0` (tooling-only, not used by the FastAPI app itself).
-* `frontend/public/models/det_10g_sim.onnx` overwritten in place with the patched version — gitignored, local-filesystem-only change, nothing to commit for the model itself. This is now the *only* surviving copy of this model on disk (the un-simplified originals were deleted last session); the patch script's auto-backup is the only fallback path if a future regression needs the pre-patch bytes.
-* Verified end-to-end with a scripted Playwright run (temp project in the scratchpad dir, not committed) against the already-running dev stack (`docker compose` db+api, `npm run dev` frontend, both left running from a prior session): registered a fresh throwaway account, uploaded a real photo (`storage/d287613a-.../077e0fd2-.../original.jpg`), ran detection 3 times post-patch. Console showed `arcEP= webgpu detEP= webgpu` and zero fallback warnings on all 3 runs; 6/6 faces detected each time; QC review screen rendered with face boxes and a reachable "Name faces →" button.
-* Both MAT-541 and MAT-543 updated with the fix details and marked Done in Linear.
-* `npx tsc -b` clean throughout.
-
-### Next Session
-
-* No ML/WebGPU items currently open — both tickets from this session are closed and the fix is verified against real hardware.
-* Not done this session, worth a future pass: stress-test the now-clean WebGPU path against a dense photo (100+ faces, per the original spike doc's "VBS stress case") to confirm memory behavior holds up, not just the 6-face case tested here.
-
----
-
 ## 2026-06-30 — Delete original ONNX models + MAT-530 delete-verification checklist
 
 **Session Goal:** Close out the two long-pending items sitting at the bottom of every "Next Session" list for the past several sessions — delete the 182MB original (non-`_sim`) ONNX models once WebGPU is confirmed stable, and manually verify MAT-530's photo-delete flow end-to-end (confirm dialog, grid update, DB cascade, storage cleanup, repeat-delete, cross-account).
@@ -799,5 +770,35 @@
 
 * MAT-541: investigate patching `det_10g_sim.onnx`'s AveragePool `ceil_mode` attribute directly (onnx-graphsurgeon or similar) so WebGPU detection succeeds without the runtime fallback; consider decoupling the ArcFace session's execution provider from the detector's so a detector-side failure doesn't also demote the (unaffected) recognition session to WASM.
 * No other pending items are currently tracked from before this session — the two long-standing "Next Session" carryovers (model deletion, MAT-530 checklist) are both closed.
+
+---
+
+## 2026-07-01 — MAT-541/MAT-543 closed: WebGPU detection + recognition both fixed at the root
+
+**Session Goal:** Fix MAT-541 (detector always falls back to WASM on WebGPU — AveragePool `ceil_mode` error).
+**Status:** Completed ✅ — both MAT-541 and a bug it uncovered (MAT-543) closed. Detection and recognition now run cleanly on WebGPU with zero fallback, verified across multiple real-browser runs.
+
+### The "Why" (Decision Log)
+
+* **Started with MAT-541 direction (3) (decouple ArcFace/detector WebGPU fallback) over direction (1) (patch the ONNX model) as the first attempt:** direction (3) needed no new tooling — pure code change in `mlBrowser.ts`, low risk, easy to verify. Direction (1) was assumed to need ONNX graph-surgery tooling not set up in this repo. This was a "cheapest first" call, not a claim that (3) was the better fix — flagged as such when presenting the finished work.
+* **Added a WASM fallback around the ArcFace embedding step (not part of the original direction-3 plan) after real-browser verification, rather than shipping the decoupling on the ticket's untested assumption:** MAT-541 assumed ArcFace was safe on WebGPU because it has no AveragePool op. Verifying against a real photo (Playwright, `chromium.launch({headless:false})`, real GPU — Chrome for Testing still doesn't expose `navigator.gpu` under WebGPU flags, per the 2026-06-30 finding) showed that assumption was wrong: first real per-face `run()` threw `kernel "[Transpose] Transpose" is not allowed to be called recursively`, deterministically. Filed as MAT-543 rather than silently patching around it, since it's a distinct root cause from MAT-541's AveragePool issue.
+* **Investigated direction (1) after all, once asked "why not also try 1?":** re-examined the assumption that it needed new tooling — `onnx` (1.22.0) was already installed in `ml/.venv` (a leftover from the pre-pivot sidecar environment). Loaded `det_10g_sim.onnx` and found its 3 `AveragePool` nodes are all `kernel=[2,2]`, `stride=[2,2]`, `pad=0` — `ceil_mode` only changes output shape when the pooling *input* dimension is odd. Ran the model with the app's actual fixed 640×640 input (`DET_INPUT` in `mlBrowser.ts`) and confirmed every tensor feeding those nodes is always even (160→80, 80→40, 40→20), so `ceil_mode` is provably a no-op for this app's real usage — safe to patch, not just probably-safe.
+* **Verified bit-identical output before deploying the patched model, rather than trusting the shape-math argument alone:** ran both the original and patched models with 3 random-input trials via `onnxruntime` CPU inference; all 9 output tensors were `np.array_equal` on every trial. Only after that passed was the patched file copied over the live model.
+* **MAT-543 turned out to be a side effect of MAT-541, not an independent ArcFace/WebGPU incompatibility:** once the detector's `ceil_mode` bug was patched at the source, it never needs to reinitialize on WASM mid-pipeline — and the Transpose recursion (which had only ever reproduced when that reinit happened while the WebGPU ArcFace session was live) stopped reproducing across 3 consecutive fresh-browser runs. Closed MAT-543 on that evidence rather than leaving it open on a now-untestable hypothesis, while noting in the ticket that the causal mechanism (shared JSEP state during concurrent session creation) is inferred from behavior, not confirmed via deeper onnxruntime-web internals.
+
+### Technical Notes
+
+* `frontend/src/lib/mlBrowser.ts` — `_ep` split into independent `_arcEp`/`_detEp` (and `_arcBuf`/`_detBuf` both retained post-init, not just the detector's). `runPipeline`'s old single joint-fallback catch (reinit both sessions, retry once) replaced with two independent catches: `detectFaces` wrapped with its own WASM-reinit-and-retry, and a new `embedFaces(bmp, faces, W, H)` helper (extracted from the old inline embedding loop) wrapped the same way. `detectAndEmbed`'s outer try/catch simplified accordingly. `initML` now creates both sessions in parallel (previously det's creation depended sequentially on ArcFace's chosen EP) and logs `arcEP=`/`detEP=` separately. `getEP()` now returns `_arcEp`; added `getDetEP()` for `_detEp` (neither currently consumed elsewhere in the app).
+* `ml/patch_det_ceil_mode.py` (new) — persisted, reusable version of the one-off patch script: loads `det_10g_sim.onnx`, flips `ceil_mode` 1→0 on the 3 AveragePool nodes, backs up the pre-patch model to `frontend/public/models/det_10g_sim.PRE_MAT541_BACKUP.onnx`, re-verifies bit-identical output, and only then overwrites the live model. `ml/requirements.txt` — added `onnx==1.22.0` (tooling-only, not used by the FastAPI app itself).
+* `frontend/public/models/det_10g_sim.onnx` overwritten in place with the patched version — gitignored, local-filesystem-only change, nothing to commit for the model itself. This is now the *only* surviving copy of this model on disk (the un-simplified originals were deleted last session); the patch script's auto-backup is the only fallback path if a future regression needs the pre-patch bytes.
+* Verified end-to-end with a scripted Playwright run (temp project in the scratchpad dir, not committed) against the already-running dev stack (`docker compose` db+api, `npm run dev` frontend, both left running from a prior session): registered a fresh throwaway account, uploaded a real photo (`storage/d287613a-.../077e0fd2-.../original.jpg`), ran detection 3 times post-patch. Console showed `arcEP= webgpu detEP= webgpu` and zero fallback warnings on all 3 runs; 6/6 faces detected each time; QC review screen rendered with face boxes and a reachable "Name faces →" button.
+* `docs/webgpu-onnx-explainer.md` (new) — plain-language writeup of the WebGPU/ONNX/ArcFace fix for non-ML-background reading, requested after the fix landed; includes a section on why the 640×640 detector resize doesn't reject any photos (it's a proportional letterbox, and the ArcFace crop always comes from the full-resolution original, not the shrunk canvas).
+* Both MAT-541 and MAT-543 updated with the fix details and marked Done in Linear.
+* `npx tsc -b` clean throughout.
+
+### Next Session
+
+* No ML/WebGPU items currently open — both tickets from this session are closed and the fix is verified against real hardware.
+* Not done this session, worth a future pass: stress-test the now-clean WebGPU path against a dense photo (100+ faces, per the original spike doc's "VBS stress case") to confirm memory behavior holds up, not just the 6-face case tested here.
 
 ---
