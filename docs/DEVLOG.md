@@ -833,3 +833,31 @@
 * Custom domain, stricter photo-privacy model — both still explicitly deferred per the plan doc's "Open items not yet decided," untouched this session.
 
 ---
+
+## 2026-07-01 — Post-deploy field bugs fixed: cross-site cookie (same-origin proxy) + face-crop cache collision
+
+**Session Goal:** Fix two bugs the user hit testing the freshly-deployed production app on their iPhone (Safari and Brave): login succeeds then immediately bounces back to an empty login screen, and face-crop thumbnails don't render in "Browse/Edit Names" or "Slideshow" for a saved image.
+**Status:** Completed ✅ — both confirmed fixed by the user on their actual device after deploy.
+
+### The "Why" (Decision Log)
+
+* **Reproduced the login bug with real WebKit (Playwright's `webkit` + iPhone device emulation) over trusting Chromium testing:** Chromium doesn't implement Safari's Intelligent Tracking Prevention, so it couldn't have reproduced this — needed the actual engine to confirm the cookie was being silently dropped rather than guessing from the symptom alone.
+* **Same-origin reverse proxy (Cloudflare Pages Function) over switching to Authorization-header token auth — user's explicit choice between the two options presented:** the proxy fixes the cookie problem for every browser at once with no frontend auth-flow changes, at the cost of one new small proxy file + a dashboard env var change. Token auth would have touched every authenticated fetch call in the frontend and traded a browser-cookie-policy problem for an XSS-exposure tradeoff to manage instead.
+* **Didn't attempt the `Partitioned` (CHIPS) cookie attribute as a lighter-weight alternative:** uncertain it would cover Brave at all (Brave's Shields are known to block/strip CHIPS as part of its default third-party-storage blocking, independent of the attribute), and the bug reproduced on both Safari and Brave — a fix that might only address one of the two didn't seem worth the smaller diff.
+* **`crossOrigin="anonymous"` on the `<img>` tags over reworking `useFaceCrops`'s fetch approach:** confirmed via direct `curl` (with a matching `Origin` header) that R2 already sends the correct `Access-Control-Allow-Origin` for the exact failing URL — ruling out a server/bucket config problem. The failure only made sense as a browser-side cache collision (plain `<img>` load cached as opaque, then `useFaceCrops`'s CORS-mode `fetch()` of the same URL hitting that cached entry), so the fix was making the initial `<img>` load CORS-aware too, not touching the fetch logic that was already correct.
+
+### Technical Notes
+
+* `frontend/functions/api/[[path]].js` (new) — Cloudflare Pages Function, catch-all route matching `/api/*`, reverse-proxies to `https://api-black-silence-6888.fly.dev` by constructing a new `Request` from the incoming one with the rewritten URL and returning `fetch()` of it directly (preserves method/headers/cookies/body transparently, including `Set-Cookie` on the way back).
+* Required a manual step outside the repo: cleared `VITE_API_BASE` in the Cloudflare Pages dashboard's build environment variables, so the frontend's `api()` helper falls back to relative `/api/*` paths (intercepted by the new proxy) instead of the absolute Fly URL it was calling directly before.
+* `frontend/src/pages/Viewer.tsx` and `frontend/src/pages/Home.tsx` — added `crossOrigin="anonymous"` to the `<img>` tags rendering `thumbnail_url` (both are R2 URLs also consumed by `useFaceCrops`'s canvas-crop generation).
+* No backend changes — `corsMiddleware`'s `ALLOWED_ORIGINS` allowlist and the cookie's `SameSite=None; Secure` settings were already correct and didn't need to change; the proxy makes most calls same-origin so CORS/SameSite mostly stop being relevant for them.
+* Verified against live production (`nashishei.pages.dev`) with a real WebKit + iPhone 14 Pro Max emulated Playwright run: registration, session persistence across a full page reload, upload, naming, share-link generation, and both "Browse/Edit Names" and "Slideshow" rendering actual 96×96 face-crop thumbnails (`naturalWidth: 96, complete: true`) — then confirmed independently by the user on their real device.
+* One benign WebKit console message during the reload step (`TypeError: Load failed`) — WebKit's generic message for a fetch aborted by page navigation, expected when reloading mid-request, not a functional issue.
+
+### Next Session
+
+* No open items from this fix — both reported bugs are closed and user-confirmed.
+* Carried over from the last entry, still untouched: throwaway `mat548-*@example.com` test accounts in the Neon DB, custom domain / stricter photo-privacy decisions deferred per the plan doc.
+
+---
