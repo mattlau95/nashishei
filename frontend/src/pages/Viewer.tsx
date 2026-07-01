@@ -379,6 +379,7 @@ export default function Viewer() {
           src={data.thumbnail_url}
           alt=""
           draggable={false}
+          crossOrigin="anonymous"
           style={{ display: 'block', width: '100%', height: 'auto' }}
         />
 

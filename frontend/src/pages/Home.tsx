@@ -168,6 +168,7 @@ function HomeContent({ onLogout }: { onLogout: () => void }) {
                       <img
                         src={img.thumbnail_url}
                         alt=""
+                        crossOrigin="anonymous"
                         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                       />
                     </div>
