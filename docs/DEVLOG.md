@@ -684,3 +684,32 @@
 * Still pending from prior sessions: MAT-534/537/538 (naming-flow data-loss protection, naming/QC polish, prod-build LCP verification); delete original `det_10g.onnx`/`w600k_r50.onnx` (182MB) once WebGPU confirmed stable; MAT-530's manual delete-verification checklist.
 
 ---
+
+## 2026-06-30 — Prevent naming-flow data loss (MAT-534) + production deploy plan doc
+
+**Session Goal:** Close MAT-534 (leave-page warning while naming faces) from the same-day UX audit, scoped to the minimum fix after confirming with the user; also commit a production-deploy architecture doc authored in a parallel tab.
+**Status:** Completed ✅ — MAT-534 minimum fix shipped; `PRODUCTION-DEPLOY-PLAN.md` is docs-only ("planned, not yet implemented"), not part of this session's code work.
+
+### The "Why" (Decision Log)
+
+* **Minimum `beforeunload` fix over full sessionStorage draft restoration:** confirmed directly with the user via a scoped question. Full restoration would require `Home.tsx` to also persist `step`/`file`/`detections`/`imageId`/`suggestions` — right now a real page refresh resets `Home.tsx` to the `'pick'` step and drops the selected `File` object entirely, so persisting just `names` in `FaceNameList` would have nothing to restore into. User chose minimum for this pass.
+* **Gated the listener on `namedCount > 0 && !done` using existing state, not new state:** reusing the component's already-derived `namedCount`/`done` values means the `beforeunload` listener attaches/detaches automatically as names are typed/cleared or the flow reaches the "Saved!" screen — no extra state to keep in sync.
+* **`PRODUCTION-DEPLOY-PLAN.md` and the `INBOX.md` line-item removal were authored in a different session, not this one** — committed as-is at the user's request. ⚠️ CONFIRM: no first-hand visibility into the reasoning behind that doc's stack choices; if a "why" is needed later, treat the doc's own embedded rationale (Fly.io/Neon reuse, R2 for the 174MB ONNX model exceeding Pages' 25MB file cap, CORS allowlist gap) as the source of truth, not this entry.
+
+### Technical Notes
+
+* `frontend/src/components/FaceNameList.tsx` — added a `useEffect` after the `namedCount` calculation registering `window.addEventListener('beforeunload', ...)` whenever `namedCount > 0 && !done`; handler calls `e.preventDefault()` and sets `e.returnValue = ''` to trigger the browser's native confirmation dialog. Cleanup removes the listener; effect re-evaluates on `namedCount`/`done` changes.
+* `tsc --noEmit` passes clean in `frontend/`.
+* Two commits: `8d47e39` (`fix: warn before leaving mid-naming (MAT-534)`), `39abfe3` (`docs: add production deploy plan, clear inbox item`).
+* `docs/INBOX.md` — removed the "deploy outside docker/npm-localhost" line item (now addressed by the new plan doc).
+* `docs/PRODUCTION-DEPLOY-PLAN.md` (new, 89 lines) — status "planned, not yet implemented." Architecture: Go API stays on Fly.io, Postgres+pgvector stays on Neon, new Cloudflare R2 for photo + ML-asset object storage, new Cloudflare Pages for frontend hosting. Flags the CORS reflect-any-origin vulnerability in `api/cmd/api/main.go:91-111` as the one fix to do "regardless of anything else — it's live today."
+
+### Next Session
+
+* Manual browser verification of the MAT-534 fix: type a name, attempt to close/refresh the tab, confirm the native prompt appears; clear the name (or reach "Saved!"), confirm it doesn't.
+* If full draft-restoration-on-refresh is wanted later, file it as a new ticket scoped to `Home.tsx` + `FaceNameList.tsx` together — persisting `step`/`file`/`detections`/`imageId`/`suggestions`, not just `names`.
+* `PRODUCTION-DEPLOY-PLAN.md`'s required changes (CORS allowlist fix, R2 storage backend, `VITE_ASSET_BASE` build wiring) not yet implemented.
+* MAT-537, MAT-538 still open from the 2026-06-30 UX audit (naming/QC polish, prod-build LCP verification).
+* Still pending from prior sessions: delete original `det_10g.onnx`/`w600k_r50.onnx` (182MB) once WebGPU confirmed stable; MAT-530's manual delete-verification checklist.
+
+---
