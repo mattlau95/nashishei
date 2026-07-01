@@ -74,7 +74,7 @@ func RevokeShareToken(db *pgxpool.Pool) http.HandlerFunc {
 	}
 }
 
-func GetSharedImage(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
+func GetSharedImage(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := chi.URLParam(r, "token")
 

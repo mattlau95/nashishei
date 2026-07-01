@@ -39,7 +39,7 @@ function HomeContent({ onLogout }: { onLogout: () => void }) {
 
   useEffect(() => {
     if (step !== 'pick') return
-    api('/api/images')
+    api('/api/images', { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : []))
       .then((items: GalleryImage[]) => { setGallery(items); setGalleryLoaded(true) })
       .catch(() => setGalleryLoaded(true))

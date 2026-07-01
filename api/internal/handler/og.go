@@ -26,7 +26,7 @@ type ogData struct {
 	ShareURL     string
 }
 
-func ShareOGPage(db *pgxpool.Pool, store *storage.Local, cfg config.Config) http.HandlerFunc {
+func ShareOGPage(db *pgxpool.Pool, store storage.Storage, cfg config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := chi.URLParam(r, "token")
 

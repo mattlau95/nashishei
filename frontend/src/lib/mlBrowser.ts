@@ -1,5 +1,7 @@
 import * as ort from 'onnxruntime-web'
 
+const ASSET_BASE = (import.meta.env.VITE_ASSET_BASE ?? '').replace(/\/$/, '')
+
 // Singletons live at module scope; HMR swapping would leave mlState='ready'
 // while sessions are null. Force a full reload on any edit to this file.
 if (import.meta.hot) import.meta.hot.invalidate()
@@ -372,12 +374,13 @@ export function initML(
   if (_initPromise) return _initPromise
   _initPromise = (async () => {
     ort.env.wasm.numThreads = 1
+    ort.env.wasm.wasmPaths = `${ASSET_BASE}/ort/`
     const ep: EP = 'gpu' in navigator ? 'webgpu' : 'wasm'
 
     // Load both models (ArcFace shows progress; det is small)
     const [arcBuf, detBuf] = await Promise.all([
-      loadModel('/models/w600k_r50_sim.onnx', 'w600k_r50_sim', onProgress),
-      loadModel('/models/det_10g_sim.onnx',   'det_10g_sim'),
+      loadModel(`${ASSET_BASE}/models/w600k_r50_sim.onnx`, 'w600k_r50_sim', onProgress),
+      loadModel(`${ASSET_BASE}/models/det_10g_sim.onnx`,   'det_10g_sim'),
     ])
     // Keep both buffers for WASM re-init if WebGPU fails at runtime
     _detBuf = detBuf

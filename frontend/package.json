@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "npm run copy-wasm",
     "build": "tsc -b && vite build",
+    "postbuild": "node -e \"const fs=require('fs');const dir='dist/assets';fs.readdirSync(dir).filter(f=>f.endsWith('.wasm')).forEach(f=>fs.unlinkSync(dir+'/'+f));if(process.env.VITE_ASSET_BASE){fs.rmSync('dist/ort',{recursive:true,force:true});fs.rmSync('dist/models',{recursive:true,force:true})}\"",
     "lint": "eslint .",
     "preview": "vite preview",
-    "copy-wasm":"node -e \"const fs=require('fs');fs.mkdirSync('public/ort',{recursive:true});fs.readdirSync('node_modules/onnxruntime-web/dist').filter(f=>f.endsWith('.wasm')).forEach(f=>fs.copyFileSync('node_modules/onnxruntime-web/dist/'+f,'public/ort/'+f))\""
+    "copy-wasm":"node -e \"const fs=require('fs');fs.mkdirSync('public/ort',{recursive:true});fs.readdirSync('node_modules/onnxruntime-web/dist').filter(f=>f.startsWith('ort-wasm-')).forEach(f=>fs.copyFileSync('node_modules/onnxruntime-web/dist/'+f,'public/ort/'+f))\""
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.35",

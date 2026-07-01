@@ -22,7 +22,7 @@ var allowedMIME = map[string]string{
 	"image/webp": "webp",
 }
 
-func UploadImage(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
+func UploadImage(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 		if err := r.ParseMultipartForm(maxUploadSize); err != nil {
@@ -116,7 +116,7 @@ func UploadImage(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
 	}
 }
 
-func GetImage(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
+func GetImage(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		imageID := chi.URLParam(r, "id")
 		accountID := middleware.AccountID(r.Context())
@@ -145,7 +145,7 @@ func GetImage(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
 	}
 }
 
-func ListImages(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
+func ListImages(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		accountID := middleware.AccountID(r.Context())
 		rows, err := db.Query(r.Context(),
@@ -183,7 +183,7 @@ func ListImages(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
 	}
 }
 
-func DeleteImage(db *pgxpool.Pool, store *storage.Local) http.HandlerFunc {
+func DeleteImage(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		imageID := chi.URLParam(r, "id")
 		accountID := middleware.AccountID(r.Context())

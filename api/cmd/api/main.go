@@ -6,7 +6,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -18,6 +21,8 @@ import (
 	"github.com/mattlau95/nashishei/api/internal/middleware"
 	"github.com/mattlau95/nashishei/api/internal/storage"
 )
+
+const shutdownTimeout = 10 * time.Second
 
 func main() {
 	_ = godotenv.Load()
@@ -32,9 +37,21 @@ func main() {
 	defer pool.Close()
 	slog.Info("database connected")
 
-	store, err := storage.NewLocal(cfg.StoragePath, cfg.BaseURL)
-	if err != nil {
-		slog.Error("storage init failed", "err", err)
+	var store storage.Storage
+	switch cfg.StorageDriver {
+	case "r2":
+		store = storage.NewR2(cfg.R2AccountID, cfg.R2AccessKeyID, cfg.R2SecretAccessKey, cfg.R2Bucket, cfg.R2PublicURL)
+		slog.Info("storage driver", "driver", "r2", "bucket", cfg.R2Bucket)
+	case "local":
+		local, err := storage.NewLocal(cfg.StoragePath, cfg.BaseURL)
+		if err != nil {
+			slog.Error("storage init failed", "err", err)
+			os.Exit(1)
+		}
+		store = local
+		slog.Info("storage driver", "driver", "local", "path", cfg.StoragePath)
+	default:
+		slog.Error("unknown STORAGE_DRIVER", "driver", cfg.StorageDriver)
 		os.Exit(1)
 	}
 
@@ -42,7 +59,7 @@ func main() {
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.RequestID)
-	r.Use(corsMiddleware(cfg.FrontendURL))
+	r.Use(corsMiddleware(cfg.AllowedOrigins))
 
 	// Public routes
 	r.Get("/health", handler.Health(pool))
@@ -54,13 +71,17 @@ func main() {
 	r.Put("/share/{token}/name", handler.RenameViaShare(pool))
 	r.Get("/s/{token}", handler.ShareOGPage(pool, store, cfg))
 
-	// Serve uploaded files — CORS header allows canvas toDataURL from any frontend origin
-	r.Get("/files/*", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		rctx := chi.RouteContext(r.Context())
-		prefix := strings.TrimSuffix(rctx.RoutePattern(), "/*")
-		http.StripPrefix(prefix, http.FileServer(http.Dir(cfg.StoragePath))).ServeHTTP(w, r)
-	})
+	// Serve uploaded files when using local storage — CORS header allows canvas
+	// toDataURL from any frontend origin. Not needed for the r2 driver, which
+	// serves files directly from the R2 public URL.
+	if cfg.StorageDriver == "local" {
+		r.Get("/files/*", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			rctx := chi.RouteContext(r.Context())
+			prefix := strings.TrimSuffix(rctx.RoutePattern(), "/*")
+			http.StripPrefix(prefix, http.FileServer(http.Dir(cfg.StoragePath))).ServeHTTP(w, r)
+		})
+	}
 
 	// Authenticated routes
 	r.Group(func(r chi.Router) {
@@ -70,7 +91,6 @@ func main() {
 		r.Post("/images", handler.UploadImage(pool, store))
 		r.Get("/images/{id}", handler.GetImage(pool, store))
 		r.Delete("/images/{id}", handler.DeleteImage(pool, store))
-		r.Post("/images/{id}/detect", handler.DetectImage(pool, store, cfg))
 		r.Post("/images/{id}/detect-client", handler.DetectImageFromClient(pool, cfg))
 		r.Post("/images/{id}/share", handler.GenerateShareToken(pool, cfg))
 		r.Delete("/images/{id}/share", handler.RevokeShareToken(pool))
@@ -81,23 +101,45 @@ func main() {
 	})
 
 	addr := fmt.Sprintf(":%s", cfg.Port)
-	slog.Info("api listening", "addr", addr)
-	if err := http.ListenAndServe(addr, r); err != nil {
-		slog.Error("server error", "err", err)
+	srv := &http.Server{Addr: addr, Handler: r}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		slog.Info("api listening", "addr", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server error", "err", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-ctx.Done()
+	stop()
+	slog.Info("shutting down")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("graceful shutdown failed", "err", err)
 		os.Exit(1)
 	}
+	slog.Info("shutdown complete")
 }
 
-func corsMiddleware(_ string) func(http.Handler) http.Handler {
+func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
+	allowed := make(map[string]bool, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		allowed[o] = true
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			if origin != "" {
-				// Reflect the exact origin so credentials work (wildcard + credentials is invalid per spec)
+			if origin != "" && allowed[origin] {
+				// Echo the exact origin so credentials work (wildcard + credentials is invalid per spec)
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
-			} else {
-				w.Header().Set("Access-Control-Allow-Origin", "*")
+				w.Header().Set("Vary", "Origin")
 			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")

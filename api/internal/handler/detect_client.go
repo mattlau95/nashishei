@@ -12,8 +12,8 @@ import (
 )
 
 // DetectImageFromClient accepts face detections and 512-dim embeddings produced by
-// the local ML sidecar running on the Tauri desktop client. It stores them with
-// their embeddings and runs the same pgvector similarity search as DetectImage.
+// ArcFace running in the browser (onnxruntime-web). It stores them with their
+// embeddings and runs a pgvector similarity search for name suggestions.
 func DetectImageFromClient(db *pgxpool.Pool, cfg config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		imageID := chi.URLParam(r, "id")

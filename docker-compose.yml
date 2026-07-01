@@ -30,21 +30,11 @@ services:
       - JWT_SECRET=dev-secret-change-in-prod
       - BASE_URL=http://localhost:8080
       - FRONTEND_URL=http://localhost:5173
-      - ML_SIDECAR_URL=http://ml:8000
     volumes:
       - ./storage:/storage
     depends_on:
       db:
         condition: service_healthy
-
-  ml:
-    build: ./ml
-    ports:
-      - "8000:8000"
-    environment:
-      - ENV=development
-    volumes:
-      - ./ml/main.py:/app/main.py
 
 volumes:
   db_data:

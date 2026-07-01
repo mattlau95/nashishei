@@ -10,14 +10,12 @@ api/*.exe
 frontend/node_modules/
 frontend/dist/
 
-# Python
-ml/__pycache__/
-ml/.venv/
-ml/*.pyc
-
 # Storage (local uploads)
 /storage/
 /api/storage/
+
+# Cloudflare
+.wrangler/
 
 # OS
 .DS_Store

@@ -5,8 +5,8 @@ primary_region = 'ewr'
 
 [env]
   PORT = "8080"
-  STORAGE_PATH = "/storage"
   ENV = "production"
+  STORAGE_DRIVER = "r2"
 
 [http_service]
   internal_port = 8080
