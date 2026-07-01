@@ -16,11 +16,6 @@ primary_region = 'ewr'
   min_machines_running = 0
   processes = ['app']
 
-[[mounts]]
-  source = "nashishei_storage"
-  destination = "/storage"
-  initial_size = "1gb"
-
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
