@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { api } from '../lib/api'
 
 const CROP_SIZE = 96
 
@@ -22,10 +21,11 @@ export function useFaceCrops(
     let cancelled = false
 
     async function load() {
-      // Use only the pathname so the request goes through Vite's /files proxy
-      // (same-origin). This avoids CORS entirely — the canvas is never tainted.
-      const path = new URL(imgSrc!, window.location.href).pathname
-      const resp = await api(path)
+      // Fetch the full URL directly — both storage backends (local /files/*,
+      // R2 bucket) already send CORS headers permitting this, and reading the
+      // response into a blob URL means the canvas is never tainted regardless
+      // of the image's origin.
+      const resp = await fetch(imgSrc!)
       if (!resp.ok) return
       const blob = await resp.blob()
       const blobUrl = URL.createObjectURL(blob)
