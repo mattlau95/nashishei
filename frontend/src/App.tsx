@@ -4,11 +4,9 @@ import Viewer from './pages/Viewer'
 import AuthPage from './pages/AuthPage'
 import { api } from './lib/api'
 
-// Lazy: both pull in onnxruntime-web (Home via mlBrowser.ts, ArcFaceSpike via its own
-// arcfaceSpike.ts). A static import here would fetch that whole chain on every route,
-// including the unauthenticated login screen — see MAT-531.
+// Lazy: pulls in onnxruntime-web via mlBrowser.ts. A static import here would fetch
+// that whole chain on every route, including the unauthenticated login screen — see MAT-531.
 const Home = lazy(() => import('./pages/Home'))
-const ArcFaceSpike = lazy(() => import('./pages/ArcFaceSpike'))
 
 function AuthGate() {
   const [authed, setAuthed] = useState(() => localStorage.getItem('authed') === '1')
@@ -57,7 +55,6 @@ export default function App() {
     <Routes>
       <Route path="/" element={<AuthGate />} />
       <Route path="/s/:token" element={<Viewer />} />
-      <Route path="/spike" element={<Suspense fallback={null}><ArcFaceSpike /></Suspense>} />
     </Routes>
   )
 }

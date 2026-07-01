@@ -742,3 +742,33 @@
 * All eight tickets from the 2026-06-30 UX audit (MAT-531–MAT-538) are now closed.
 
 ---
+
+## 2026-06-30 — Delete original ONNX models + MAT-530 delete-verification checklist
+
+**Session Goal:** Close out the two long-pending items sitting at the bottom of every "Next Session" list for the past several sessions — delete the 182MB original (non-`_sim`) ONNX models once WebGPU is confirmed stable, and manually verify MAT-530's photo-delete flow end-to-end (confirm dialog, grid update, DB cascade, storage cleanup, repeat-delete, cross-account).
+**Status:** Completed ✅ — models deleted, MAT-530 fully verified and marked Done, and a new bug (MAT-541) filed after WebGPU verification produced a surprising result (see below).
+
+### The "Why" (Decision Log)
+
+* **Removed the `/spike` route entirely rather than repointing it at `_sim`:** `arcfaceSpike.ts` still fetched the original `w600k_r50.onnx` directly, which blocked deleting it. `docs/SPIKE-browser-arcface.md` describes the route as a one-day throwaway feasibility spike ("Output: go/no-go decision + DEVLOG entry + a throwaway demo page") whose decision was already made and acted on — the real pipeline (`mlBrowser.ts` + `Home.tsx`) superseded it. Confirmed with the user before deleting `ArcFaceSpike.tsx`/`arcfaceSpike.ts` and the `/spike` route in `App.tsx` rather than just swapping its model URL to keep it alive.
+* **Deleted the original models regardless of WebGPU status, once it became clear the code never loads them:** grep-confirmed only `mlBrowser.ts` (via `_sim` files) and the now-removed `arcfaceSpike.ts` ever referenced the model filenames — WASM fallback also runs on the `_sim` buffers, not the originals. The "once WebGPU confirmed stable" condition in the backlog note turned out to be moot: the originals were never on any load path to begin with once `/spike` was gone, so their deletion isn't actually gated on WebGPU behavior. Confirmed this reasoning with the user before deleting.
+* **Couldn't verify WebGPU stability through Playwright's bundled Chrome for Testing at first:** `navigator.gpu` was completely absent (`'gpu' in navigator` → `false`) under every flag combination tried (`--enable-unsafe-webgpu`, `--enable-unsafe-swiftshader`, `--use-angle=swiftshader`, etc.). Surfaced this to the user as a real automation gap rather than quietly giving up or reporting a false pass.
+* **Re-ran with a plain `chromium.launch({ headless: false })` (no extra flags) for the actual MAT-530 test, and WebGPU appeared correctly** (`EP=webgpu` in console) — the earlier flags had been actively fighting the platform's real GPU/ANGLE path rather than helping. This is the run that surfaced the AveragePool finding below.
+* **Filed MAT-541 instead of silently accepting the WASM fallback as "fine":** the console showed `[ML] WebGPU runtime failure, reinitializing on WASM: using ceil() in shape computation is not yet supported for AveragePool` on the very first detection — the exact error a prior session's `onnxsim` pass was supposed to have fixed (DEVLOG: "the dynamic shape computations that triggered the ceil_mode issue"). It didn't: the simplification reduced Shape/Slice node counts but apparently never touched the AveragePool node's `ceil_mode` attribute itself, which is what onnxruntime-web's WebGPU backend actually rejects. This reproduced 100% of the time, not intermittently, so it's a real bug, not a flake — confirmed with the user before filing rather than just noting it in passing.
+* **Reused a real previously-uploaded photo (`storage/e8ce2c59-.../*/original.jpg`) instead of a synthetic test image for the Playwright run:** guarantees the detection pipeline has a known-good input (already proven to detect faces in a prior real session) rather than risking a zero-faces result on a synthetic image, which would have blocked the whole verification chain on an unrelated question ("does this photo have detectable faces").
+
+### Technical Notes
+
+* `frontend/src/App.tsx` — removed the `ArcFaceSpike` lazy import and `/spike` route.
+* Deleted: `frontend/src/pages/ArcFaceSpike.tsx`, `frontend/src/lib/arcfaceSpike.ts`.
+* Deleted: `frontend/public/models/det_10g.onnx` (17MB), `frontend/public/models/w600k_r50.onnx` (166MB) — both gitignored (`frontend/.gitignore:20`), so this is a local-filesystem-only change, nothing to commit. `det_10g_sim.onnx`/`w600k_r50_sim.onnx` remain and are the only models the app loads.
+* MAT-530 verified via a scripted Playwright run (temp project in the scratchpad dir, not committed) against the already-running dev stack (`docker compose` db+api, `npm run dev` frontend): registered two fresh throwaway accounts, uploaded a real photo, named a face, saved, then exercised all six checklist items — confirm-dialog cancel (photo stays), confirm-dialog accept (photo removed, grid updates immediately with no reload), cross-account `DELETE` attempt (404, data untouched), repeat-delete on an already-deleted id (404, not 500), then verified server-side via `docker exec nashishei-db-1 psql` (images/detections/tags rows all count 0 post-delete, cascade confirmed) and the filesystem (`storage/<accountId>/<imageId>/` directory gone). Cleaned up the two throwaway test accounts from Postgres afterward.
+* MAT-530 and MAT-538's WebGPU gate are now resolved; MAT-541 filed separately for the AveragePool bug itself (not fixed this session — needs ONNX graph surgery on `det_10g_sim.onnx`'s AveragePool node, or a decision to accept WASM-only detection).
+* `npx tsc -b` clean after the `/spike` removal and model deletion.
+
+### Next Session
+
+* MAT-541: investigate patching `det_10g_sim.onnx`'s AveragePool `ceil_mode` attribute directly (onnx-graphsurgeon or similar) so WebGPU detection succeeds without the runtime fallback; consider decoupling the ArcFace session's execution provider from the detector's so a detector-side failure doesn't also demote the (unaffected) recognition session to WASM.
+* No other pending items are currently tracked from before this session — the two long-standing "Next Session" carryovers (model deletion, MAT-530 checklist) are both closed.
+
+---
