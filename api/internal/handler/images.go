@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/disintegration/imaging"
 	"github.com/go-chi/chi/v5"
@@ -37,6 +38,11 @@ func UploadImage(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 		}
 		defer file.Close()
 
+		var title *string
+		if t := strings.TrimSpace(r.FormValue("title")); t != "" {
+			title = &t
+		}
+
 		// Read into memory so we can detect MIME and process without seeking
 		buf := new(bytes.Buffer)
 		if _, err := buf.ReadFrom(file); err != nil {
@@ -67,9 +73,9 @@ func UploadImage(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 		// Insert DB row first to get the image ID
 		var imageID string
 		err = db.QueryRow(r.Context(),
-			`INSERT INTO images (account_id, storage_key, width, height)
-			 VALUES ($1, '', $2, $3) RETURNING id`,
-			accountID, width, height,
+			`INSERT INTO images (account_id, storage_key, width, height, title)
+			 VALUES ($1, '', $2, $3, $4) RETURNING id`,
+			accountID, width, height, title,
 		).Scan(&imageID)
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
@@ -108,6 +114,7 @@ func UploadImage(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]any{
 			"id":            imageID,
+			"title":         title,
 			"width":         width,
 			"height":        height,
 			"original_url":  store.URL(accountID, imageID, originalFile),
@@ -123,12 +130,12 @@ func GetImage(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 
 		var id, storageKey string
 		var width, height int
-		var shareToken *string
+		var shareToken, title *string
 		err := db.QueryRow(r.Context(),
-			`SELECT id, storage_key, width, height, share_token
+			`SELECT id, storage_key, width, height, share_token, title
 			 FROM images WHERE id = $1 AND account_id = $2`,
 			imageID, accountID,
-		).Scan(&id, &storageKey, &width, &height, &shareToken)
+		).Scan(&id, &storageKey, &width, &height, &shareToken, &title)
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -137,6 +144,7 @@ func GetImage(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"id":            id,
+			"title":         title,
 			"width":         width,
 			"height":        height,
 			"thumbnail_url": store.URL(accountID, id, "thumb.jpg"),
@@ -148,10 +156,30 @@ func GetImage(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 func ListImages(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		accountID := middleware.AccountID(r.Context())
-		rows, err := db.Query(r.Context(),
-			`SELECT id, share_token FROM images WHERE account_id = $1 ORDER BY created_at DESC`,
-			accountID,
-		)
+		q := strings.TrimSpace(r.URL.Query().Get("q"))
+
+		query := `SELECT id, share_token, title FROM images WHERE account_id = $1 ORDER BY created_at DESC`
+		args := []any{accountID}
+		if q != "" {
+			// EXISTS (rather than a JOIN) avoids row fan-out across multiple tags/detections
+			// per image, so no DISTINCT is needed and ORDER BY created_at stays valid.
+			query = `SELECT id, share_token, title
+				 FROM images i
+				 WHERE account_id = $1
+				   AND (
+				     title ILIKE '%' || $2 || '%'
+				     OR EXISTS (
+				       SELECT 1 FROM detections d
+				       JOIN tags t ON t.detection_id = d.id AND t.status = 'confirmed'
+				       JOIN persons p ON p.id = t.person_id AND p.account_id = i.account_id
+				       WHERE d.image_id = i.id AND p.display_name ILIKE '%' || $2 || '%'
+				     )
+				   )
+				 ORDER BY created_at DESC`
+			args = []any{accountID, q}
+		}
+
+		rows, err := db.Query(r.Context(), query, args...)
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
@@ -160,16 +188,18 @@ func ListImages(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 
 		type item struct {
 			ID           string  `json:"id"`
+			Title        *string `json:"title"`
 			ThumbnailURL string  `json:"thumbnail_url"`
 			ShareToken   *string `json:"share_token"`
 		}
 		var items []item
 		for rows.Next() {
 			var id string
-			var shareToken *string
-			rows.Scan(&id, &shareToken)
+			var shareToken, title *string
+			rows.Scan(&id, &shareToken, &title)
 			items = append(items, item{
 				ID:           id,
+				Title:        title,
 				ThumbnailURL: store.URL(accountID, id, "thumb.jpg"),
 				ShareToken:   shareToken,
 			})
@@ -180,6 +210,44 @@ func ListImages(db *pgxpool.Pool, store storage.Storage) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(items)
+	}
+}
+
+func EditImageTitle(db *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		imageID := chi.URLParam(r, "id")
+		accountID := middleware.AccountID(r.Context())
+
+		var body struct {
+			Title *string `json:"title"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		var title *string
+		if body.Title != nil {
+			if t := strings.TrimSpace(*body.Title); t != "" {
+				title = &t
+			}
+		}
+
+		tag, err := db.Exec(r.Context(),
+			`UPDATE images SET title = $1 WHERE id = $2 AND account_id = $3`,
+			title, imageID, accountID,
+		)
+		if err != nil {
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		if tag.RowsAffected() == 0 {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"id": imageID, "title": title})
 	}
 }
 

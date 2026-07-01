@@ -90,6 +90,7 @@ func main() {
 		r.Get("/images", handler.ListImages(pool, store))
 		r.Post("/images", handler.UploadImage(pool, store))
 		r.Get("/images/{id}", handler.GetImage(pool, store))
+		r.Patch("/images/{id}", handler.EditImageTitle(pool))
 		r.Delete("/images/{id}", handler.DeleteImage(pool, store))
 		r.Post("/images/{id}/detect-client", handler.DetectImageFromClient(pool, cfg))
 		r.Post("/images/{id}/share", handler.GenerateShareToken(pool, cfg))

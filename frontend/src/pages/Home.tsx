@@ -7,10 +7,17 @@ import { MLProvider, useML } from '../contexts/MLContext'
 import type { Detection, Suggestion } from '../types/detection'
 
 type Step = 'pick' | 'qc' | 'name'
-type GalleryImage = { id: string; thumbnail_url: string; share_token: string | null }
+type GalleryImage = { id: string; title: string | null; thumbnail_url: string; share_token: string | null }
 
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+const HEIC_TYPES = ['image/heic', 'image/heif']
 const MAX_SIZE_MB = 50
+
+// Many browsers (Chrome/Firefox on desktop, most non-Apple pickers) report an empty or
+// generic MIME type for HEIC files — the extension is the only reliable signal there.
+function isHeic(f: File): boolean {
+  return HEIC_TYPES.includes(f.type) || /\.hei[cf]$/i.test(f.name)
+}
 
 // MLProvider lives here (not in App.tsx) so its onnxruntime-web import chain is only
 // fetched once this module is dynamically loaded — never on the login/viewer routes.
@@ -31,19 +38,50 @@ function HomeContent({ onLogout }: { onLogout: () => void }) {
   const [confirmedImageId, setConfirmedImageId] = useState<string | null>(null)
   const [confirmedSuggestions, setConfirmedSuggestions] = useState<Suggestion[]>([])
   const [pickError, setPickError] = useState<string | null>(null)
+  const [converting, setConverting] = useState(false)
   const [gallery, setGallery] = useState<GalleryImage[]>([])
   const [galleryLoaded, setGalleryLoaded] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [galleryError, setGalleryError] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null)
+  const [titleDraft, setTitleDraft] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300)
+    return () => clearTimeout(t)
+  }, [searchQuery])
+
+  useEffect(() => {
     if (step !== 'pick') return
-    api('/api/images', { credentials: 'include' })
+    const url = debouncedQuery ? `/api/images?q=${encodeURIComponent(debouncedQuery)}` : '/api/images'
+    api(url, { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : []))
       .then((items: GalleryImage[]) => { setGallery(items); setGalleryLoaded(true) })
       .catch(() => setGalleryLoaded(true))
-  }, [step])
+  }, [step, debouncedQuery])
+
+  async function handleTitleSave(id: string) {
+    const next = titleDraft.trim()
+    setEditingTitleId(null)
+    const current = gallery.find((img) => img.id === id)?.title ?? null
+    if (next === (current ?? '')) return
+    setGallery((g) => g.map((img) => (img.id === id ? { ...img, title: next || null } : img)))
+    try {
+      const res = await api(`/api/images/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ title: next || null }),
+      })
+      if (!res.ok) throw new Error('failed')
+    } catch {
+      setGallery((g) => g.map((img) => (img.id === id ? { ...img, title: current } : img)))
+      setGalleryError('Could not save title — please try again.')
+    }
+  }
 
   async function handleDelete(id: string) {
     if (!window.confirm('Delete this photo? This cannot be undone.')) return
@@ -63,17 +101,34 @@ function HomeContent({ onLogout }: { onLogout: () => void }) {
     }
   }
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0]
-    if (!f) return
-    if (!ACCEPTED_TYPES.includes(f.type)) {
-      setPickError('Please choose a JPEG, PNG, or WebP image.')
-      return
-    }
-    if (f.size > MAX_SIZE_MB * 1024 * 1024) {
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = e.target.files?.[0]
+    if (!picked) return
+    if (picked.size > MAX_SIZE_MB * 1024 * 1024) {
       setPickError(`File is too large — maximum is ${MAX_SIZE_MB} MB.`)
       return
     }
+
+    let f = picked
+    if (isHeic(picked)) {
+      setPickError(null)
+      setConverting(true)
+      try {
+        const { default: heic2any } = await import('heic2any')
+        const result = await heic2any({ blob: picked, toType: 'image/jpeg', quality: 0.9 })
+        const jpegBlob = Array.isArray(result) ? result[0] : result
+        f = new File([jpegBlob], picked.name.replace(/\.hei[cf]$/i, '.jpg'), { type: 'image/jpeg' })
+      } catch {
+        setConverting(false)
+        setPickError("Couldn't convert this HEIC photo — try again, or switch your iPhone's camera format to \"Most Compatible\" under Settings > Camera > Formats.")
+        return
+      }
+      setConverting(false)
+    } else if (!ACCEPTED_TYPES.includes(f.type)) {
+      setPickError('Please choose a JPEG, PNG, WebP, or HEIC image.')
+      return
+    }
+
     setPickError(null)
     if (imageSrc) URL.revokeObjectURL(imageSrc)
     setFile(f)
@@ -119,8 +174,8 @@ function HomeContent({ onLogout }: { onLogout: () => void }) {
           <div
             role="button"
             tabIndex={0}
-            onClick={() => fileInputRef.current?.click()}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click() }}
+            onClick={() => !converting && fileInputRef.current?.click()}
+            onKeyDown={(e) => { if (!converting && (e.key === 'Enter' || e.key === ' ')) fileInputRef.current?.click() }}
             style={{
               border: '2px dashed var(--color-separator)',
               borderRadius: 'var(--radius-lg)',
@@ -129,7 +184,8 @@ function HomeContent({ onLogout }: { onLogout: () => void }) {
               flexDirection: 'column',
               alignItems: 'center',
               gap: 'var(--space-3)',
-              cursor: 'pointer',
+              cursor: converting ? 'default' : 'pointer',
+              opacity: converting ? 0.6 : 1,
               userSelect: 'none',
               marginBottom: galleryLoaded && gallery.length > 0 ? 'var(--space-6)' : undefined,
             }}
@@ -142,81 +198,150 @@ function HomeContent({ onLogout }: { onLogout: () => void }) {
               {gallery.length > 0 ? 'Upload new photo' : 'Choose photo'}
             </p>
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', margin: 0 }}>
-              JPEG, PNG or WebP · up to {MAX_SIZE_MB} MB
+              JPEG, PNG, WebP or HEIC · up to {MAX_SIZE_MB} MB
             </p>
           </div>
 
           {/* Gallery of previous uploads */}
-          {galleryLoaded && gallery.length > 0 && (
+          {galleryLoaded && (gallery.length > 0 || debouncedQuery !== '') && (
             <section>
               <h2 style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--color-text)', margin: `0 0 var(--space-3)` }}>
                 Your photos
               </h2>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, 1fr)',
-                gap: 'var(--space-2)',
-              }}>
-                {gallery.map((img) => {
-                  const thumb = (
-                    <div style={{
-                      aspectRatio: '1',
-                      borderRadius: 'var(--radius-md)',
-                      overflow: 'hidden',
-                      background: 'var(--color-fill)',
-                    }}>
-                      <img
-                        src={img.thumbnail_url}
-                        alt=""
-                        crossOrigin="anonymous"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                      />
-                    </div>
-                  )
-                  return (
-                    <div key={img.id} style={{ position: 'relative' }}>
-                      {img.share_token ? (
-                        <Link to={`/s/${img.share_token}`} style={{ display: 'block', textDecoration: 'none' }}>
-                          {thumb}
-                        </Link>
-                      ) : (
-                        <div style={{ opacity: 0.55 }}>{thumb}</div>
-                      )}
-                      <button
-                        type="button"
-                        aria-label="Delete photo"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(img.id) }}
-                        disabled={deletingId === img.id}
-                        style={{
-                          position: 'absolute',
-                          top: 'var(--space-2)',
-                          right: 'var(--space-2)',
-                          width: 28,
-                          height: 28,
-                          borderRadius: '50%',
-                          border: 'none',
-                          background: 'rgba(0, 0, 0, 0.55)',
-                          color: '#fff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: deletingId === img.id ? 'default' : 'pointer',
-                          opacity: deletingId === img.id ? 0.5 : 1,
-                          padding: 0,
-                        }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <path d="M3 6h18" />
-                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                          <path d="M10 11v6" />
-                          <path d="M14 11v6" />
-                        </svg>
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by name or title"
+                aria-label="Search photos by person or title"
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px 14px',
+                  marginBottom: 'var(--space-3)',
+                  border: '1px solid var(--color-separator)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: 'var(--text-base)',
+                  background: 'var(--color-fill)',
+                  color: 'var(--color-text)',
+                }}
+              />
+              {gallery.length === 0 ? (
+                <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
+                  No photos match &ldquo;{debouncedQuery}&rdquo;.
+                </p>
+              ) : (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, 1fr)',
+                  gap: 'var(--space-2)',
+                }}>
+                  {gallery.map((img) => {
+                    const thumb = (
+                      <div style={{
+                        aspectRatio: '1',
+                        borderRadius: 'var(--radius-md)',
+                        overflow: 'hidden',
+                        background: 'var(--color-fill)',
+                      }}>
+                        <img
+                          src={img.thumbnail_url}
+                          alt=""
+                          crossOrigin="anonymous"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                        />
+                      </div>
+                    )
+                    return (
+                      <div key={img.id}>
+                        <div style={{ position: 'relative' }}>
+                          {img.share_token ? (
+                            <Link to={`/s/${img.share_token}`} style={{ display: 'block', textDecoration: 'none' }}>
+                              {thumb}
+                            </Link>
+                          ) : (
+                            <div style={{ opacity: 0.55 }}>{thumb}</div>
+                          )}
+                          <button
+                            type="button"
+                            aria-label="Delete photo"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(img.id) }}
+                            disabled={deletingId === img.id}
+                            style={{
+                              position: 'absolute',
+                              top: 'var(--space-2)',
+                              right: 'var(--space-2)',
+                              width: 28,
+                              height: 28,
+                              borderRadius: '50%',
+                              border: 'none',
+                              background: 'rgba(0, 0, 0, 0.55)',
+                              color: '#fff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: deletingId === img.id ? 'default' : 'pointer',
+                              opacity: deletingId === img.id ? 0.5 : 1,
+                              padding: 0,
+                            }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                              <path d="M3 6h18" />
+                              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                              <path d="M10 11v6" />
+                              <path d="M14 11v6" />
+                            </svg>
+                          </button>
+                        </div>
+                        {editingTitleId === img.id ? (
+                          <input
+                            autoFocus
+                            value={titleDraft}
+                            onChange={(e) => setTitleDraft(e.target.value)}
+                            onBlur={() => handleTitleSave(img.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') e.currentTarget.blur()
+                              if (e.key === 'Escape') setEditingTitleId(null)
+                            }}
+                            style={{
+                              width: '100%',
+                              boxSizing: 'border-box',
+                              marginTop: 'var(--space-1)',
+                              fontSize: 'var(--text-sm)',
+                              padding: '4px 6px',
+                              border: '1px solid var(--color-separator)',
+                              borderRadius: 'var(--radius-sm)',
+                            }}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setEditingTitleId(img.id); setTitleDraft(img.title ?? '') }}
+                            style={{
+                              display: 'block',
+                              width: '100%',
+                              textAlign: 'left',
+                              marginTop: 'var(--space-1)',
+                              padding: '2px 0',
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontSize: 'var(--text-sm)',
+                              color: img.title ? 'var(--color-text)' : 'var(--color-text-muted)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {img.title || 'Add a title'}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </section>
           )}
 
@@ -229,11 +354,16 @@ function HomeContent({ onLogout }: { onLogout: () => void }) {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
             onChange={handleFileChange}
             style={{ display: 'none' }}
           />
 
+          {converting && (
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 'var(--space-3)' }}>
+              Converting HEIC photo…
+            </p>
+          )}
           {mlState === 'loading' && (
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 'var(--space-3)' }}>
               Preparing face detection{loadProgress > 0 ? ` · ${Math.round(loadProgress)}%` : '…'}

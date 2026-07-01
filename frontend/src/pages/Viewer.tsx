@@ -30,29 +30,40 @@ const PULSE_DURATION_MS = 700
 
 function NameLabel({ label }: { label: SharedLabel & { display_name: string } }) {
   const above = label.bbox_y >= ABOVE_THRESHOLD
-  const centerX = (label.bbox_x + label.bbox_w / 2) * 100
 
   return (
+    // Anchored to the face's own left/right edges (not a fixed-width box centered on a
+    // point) so the pill visually centers on the face regardless of how wide the name
+    // renders — a fixed-width assumption here previously left short names looking
+    // shifted away from the face they belong to.
     <div
       style={{
         position: 'absolute',
-        left: `clamp(8px, calc(${centerX}% - 100px), calc(100% - 208px))`,
+        left: `max(8px, calc(${label.bbox_x * 100}% - 100px))`,
+        right: `max(8px, calc(${(1 - label.bbox_x - label.bbox_w) * 100}% - 100px))`,
+        display: 'flex',
+        justifyContent: 'center',
         ...(above
           ? { bottom: `calc(${(1 - label.bbox_y) * 100}% + 6px)` }
           : { top: `calc(${(label.bbox_y + label.bbox_h) * 100}% + 6px)` }),
-        maxWidth: '200px',
-        backgroundColor: 'var(--color-overlay-label)',
-        color: '#fff',
-        fontSize: 'var(--text-lg)',
-        lineHeight: '1.2',
-        padding: '4px 12px',
-        borderRadius: 'var(--radius-sm)',
-        wordBreak: 'break-word',
         pointerEvents: 'none',
         zIndex: 10,
       }}
     >
-      {label.display_name}
+      <div
+        style={{
+          maxWidth: '200px',
+          backgroundColor: 'var(--color-overlay-label)',
+          color: '#fff',
+          fontSize: 'var(--text-lg)',
+          lineHeight: '1.2',
+          padding: '4px 12px',
+          borderRadius: 'var(--radius-sm)',
+          wordBreak: 'break-word',
+        }}
+      >
+        {label.display_name}
+      </div>
     </div>
   )
 }
@@ -452,6 +463,21 @@ export default function Viewer() {
         {/* Pulse ring when a grid row is tapped — key remounts to restart animation */}
         {selectedLabel && !spotlightOpen && <PulseBox key={pulseKey} label={selectedLabel} />}
       </div>
+
+      {/* Discoverability hint — tap-to-reveal isn't otherwise signposted anywhere,
+          and the action bar below is hidden entirely until at least one face is named */}
+      {!showAll && !spotlightOpen && data.labels.length > 0 && (
+        <p style={{
+          color: 'rgba(255,255,255,0.5)',
+          fontSize: 'var(--text-sm)',
+          margin: 0,
+          padding: 'var(--space-2) var(--space-4)',
+          textAlign: 'center',
+          backgroundColor: '#000',
+        }}>
+          Tap a face to see who it is
+        </p>
+      )}
 
       {/* Action bar */}
       {namedLabels.length > 0 && (
